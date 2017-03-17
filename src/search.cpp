@@ -340,7 +340,8 @@ void Thread::search() {
   Value bestValue, alpha, beta, delta;
   Move easyMove = MOVE_NONE;
   MainThread* mainThread = (this == Threads.main() ? Threads.main() : nullptr);
-  int lastNodesSearched = 0; 
+  uint64_t lastNodesSearched = 0;
+  uint64_t lastDepthSearched = 0; 
   Depth measureDepth = rootDepth;
 
   std::memset(ss-5, 0, 8 * sizeof(Stack));
@@ -410,12 +411,13 @@ void Thread::search() {
               // Measure branching factor  
               if (lastNodesSearched && rootDepth > measureDepth)
               {  
-                  double b = double(Threads.nodes_searched())/double(lastNodesSearched);  
+                  double b = double(Threads.nodes_searched() - lastNodesSearched)/double(lastDepthSearched);  
                   
                   std::cout << "branching " << b << "\n";
               } 
               if (rootDepth > measureDepth)
               { 
+                  lastDepthSearched = Threads.nodes_searched() - lastNodesSearched;
                   lastNodesSearched = Threads.nodes_searched();
                   measureDepth = rootDepth;
               }
