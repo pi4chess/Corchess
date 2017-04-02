@@ -115,10 +115,9 @@ namespace {
   #define V(v) Value(v)
   #define S(mg, eg) make_score(mg, eg)
 
-  // MobilityBonus[PieceType][attacked] contains bonuses for middle and end game,
+  // MobilityBonus[PieceType-2][attacked] contains bonuses for middle and end game,
   // indexed by piece type and number of attacked squares in the mobility area.
-  const Score MobilityBonus[][32] = {
-    {}, {},
+  const Score MobilityBonus[4][32] = {
     { S(-75,-76), S(-57,-54), S( -9,-28), S( -2,-10), S(  6,  5), S( 14, 12), // Knights
       S( 22, 26), S( 29, 29), S( 36, 29) },
     { S(-48,-59), S(-20,-23), S( 16, -3), S( 26, 13), S( 38, 24), S( 51, 42), // Bishops
@@ -147,12 +146,6 @@ namespace {
   // friendly pawn on the rook file.
   const Score RookOnFile[2] = { S(20, 7), S(45, 20) };
 
-  // ThreatBySafePawn[PieceType] contains bonuses according to which piece
-  // type is attacked by a pawn which is protected or is not attacked.
-  const Score ThreatBySafePawn[PIECE_TYPE_NB] = {
-    S(0, 0), S(0, 0), S(176, 139), S(131, 127), S(217, 218), S(203, 215)
-  };
-
   // ThreatByMinor/ByRook[attacked PieceType] contains bonuses according to
   // which piece type attacks which one. Attacks on lesser pieces which are
   // pawn-defended are not considered.
@@ -180,11 +173,10 @@ namespace {
     S(  9, 10), S( 2, 10), S( 1, -8), S(-20,-12),
     S(-20,-12), S( 1, -8), S( 2, 10), S(  9, 10)
   };
-  
-  // Protector[PieceType][distance] contains a protecting bonus for our king,
+
+  // Protector[PieceType-2][distance] contains a protecting bonus for our king,
   // indexed by piece type and distance between the piece and the king.
-  const Score Protector[PIECE_TYPE_NB][8] = {
-    {}, {},
+  const Score Protector[4][8] = {
     { S(0, 0), S( 7, 9), S( 7, 1), S( 1, 5), S(-10,-4), S( -1,-4), S( -7,-3), S(-16,-10) }, // Knight
     { S(0, 0), S(11, 8), S(-7,-1), S(-1,-2), S( -1,-7), S(-11,-3), S( -9,-1), S(-16, -1) }, // Bishop
     { S(0, 0), S(10, 0), S(-2, 2), S(-5, 4), S( -6, 2), S(-14,-3), S( -2,-9), S(-12, -7) }, // Rook
@@ -192,19 +184,20 @@ namespace {
   };
 
   // Assorted bonuses and penalties used by evaluation
-  const Score MinorBehindPawn     = S(16,  0);
-  const Score BishopPawns         = S( 8, 12);
-  const Score RookOnPawn          = S( 8, 24);
-  const Score TrappedRook         = S(92,  0);
-  const Score WeakQueen           = S(50, 10);
-  const Score OtherCheck          = S(10, 10);
-  const Score CloseEnemies        = S( 7,  0);
-  const Score PawnlessFlank       = S(20, 80);
-  const Score ThreatByHangingPawn = S(71, 61);
-  const Score ThreatByRank        = S(16,  3);
-  const Score Hanging             = S(48, 27);
-  const Score ThreatByPawnPush    = S(38, 22);
-  const Score HinderPassedPawn    = S( 7,  0);
+  const Score MinorBehindPawn     = S( 16,  0);
+  const Score BishopPawns         = S(  8, 12);
+  const Score RookOnPawn          = S(  8, 24);
+  const Score TrappedRook         = S( 92,  0);
+  const Score WeakQueen           = S( 50, 10);
+  const Score OtherCheck          = S( 10, 10);
+  const Score CloseEnemies        = S(  7,  0);
+  const Score PawnlessFlank       = S( 20, 80);
+  const Score ThreatByHangingPawn = S( 71, 61);
+  const Score ThreatBySafePawn    = S(182,175);
+  const Score ThreatByRank        = S( 16,  3);
+  const Score Hanging             = S( 48, 27);
+  const Score ThreatByPawnPush    = S( 38, 22);
+  const Score HinderPassedPawn    = S(  7,  0);
 
   // Penalty for a bishop on a1/h1 (a8/h8 for black) which is trapped by
   // a friendly pawn on b2/g2 (b7/g7 for black). This can obviously only
@@ -300,10 +293,10 @@ namespace {
 
         int mob = popcount(b & ei.mobilityArea[Us]);
 
-        mobility[Us] += MobilityBonus[Pt][mob];
-        
+        mobility[Us] += MobilityBonus[Pt-2][mob];
+
         // Bonus for this piece as a king protector
-        score += Protector[Pt][distance(s, pos.square<KING>(Us))];
+        score += Protector[Pt-2][distance(s, pos.square<KING>(Us))];
 
         if (Pt == BISHOP || Pt == KNIGHT)
         {
@@ -538,8 +531,7 @@ namespace {
         if (weak ^ safeThreats)
             score += ThreatByHangingPawn;
 
-        while (safeThreats)
-            score += ThreatBySafePawn[type_of(pos.piece_on(pop_lsb(&safeThreats)))];
+        score += ThreatBySafePawn * popcount(safeThreats);
     }
 
     // Squares strongly protected by the opponent, either because they attack the
@@ -739,11 +731,10 @@ namespace {
 
     int kingDistance =  distance<File>(pos.square<KING>(WHITE), pos.square<KING>(BLACK))
                       - distance<Rank>(pos.square<KING>(WHITE), pos.square<KING>(BLACK));
-    int pawns = pos.count<PAWN>(WHITE) + pos.count<PAWN>(BLACK);
     bool bothFlanks = (pos.pieces(PAWN) & QueenSide) && (pos.pieces(PAWN) & KingSide);
 
     // Compute the initiative bonus for the attacking side
-    int initiative = 8 * (asymmetry + kingDistance - 17) + 12 * pawns + 16 * bothFlanks;
+    int initiative = 8 * (asymmetry + kingDistance - 17) + 12 * pos.count<PAWN>() + 16 * bothFlanks;
 
     // Now apply the bonus: note that we find the attacking side by extracting
     // the sign of the endgame value, and that we carefully cap the bonus so
@@ -841,7 +832,7 @@ Value Eval::evaluate(const Position& pos) {
           - evaluate_passer_pawns<BLACK, DoTrace>(pos, ei);
 
   // Evaluate space for both sides, only during opening
-  if (pos.non_pawn_material(WHITE) + pos.non_pawn_material(BLACK) >= 12222)
+  if (pos.non_pawn_material() >= 12222)
       score +=  evaluate_space<WHITE>(pos, ei)
               - evaluate_space<BLACK>(pos, ei);
 
@@ -864,7 +855,7 @@ Value Eval::evaluate(const Position& pos) {
       Trace::add(IMBALANCE, ei.me->imbalance());
       Trace::add(PAWN, ei.pe->pawns_score());
       Trace::add(MOBILITY, mobility[WHITE], mobility[BLACK]);
-      if (pos.non_pawn_material(WHITE) + pos.non_pawn_material(BLACK) >= 12222)
+      if (pos.non_pawn_material() >= 12222)
           Trace::add(SPACE, evaluate_space<WHITE>(pos, ei)
                           , evaluate_space<BLACK>(pos, ei));
       Trace::add(TOTAL, score);
