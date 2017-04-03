@@ -320,7 +320,7 @@ void MainThread::search() {
 void Thread::search() {
 
   Stack stack[MAX_PLY+7], *ss = stack+4; // To allow referencing (ss-4) and (ss+2)
-  Value bestValue, alpha, beta, delta;
+  Value bestValue, alpha, beta, delta1, delta2;
   Move easyMove = MOVE_NONE;
   MainThread* mainThread = (this == Threads.main() ? Threads.main() : nullptr);
 
@@ -328,7 +328,7 @@ void Thread::search() {
   for(int i = 4; i > 0; i--)
      (ss-i)->counterMoves = &this->counterMoveHistory[NO_PIECE][0]; // Use as sentinel
 
-  bestValue = delta = alpha = -VALUE_INFINITE;
+  bestValue = delta1 = delta2 = alpha = -VALUE_INFINITE;
   beta = VALUE_INFINITE;
   completedDepth = DEPTH_ZERO;
 
@@ -380,9 +380,10 @@ void Thread::search() {
           if (rootDepth >= 5 * ONE_PLY)
           {
               Value prevScore = rootMoves[PVIdx].previousScore;
-              delta = Value(int(16.5 + 0.25 * sqrt(abs(prevScore))));
-              alpha = std::max(prevScore - delta,-VALUE_INFINITE);
-              beta  = std::min(prevScore + delta, VALUE_INFINITE);
+              delta1 = (prevScore < 0) ? Value(int(17.0 + 0.02 * abs(prevScore))) : Value(18);
+              delta2 = (prevScore > 0) ? Value(int(17.0 + 0.02 * abs(prevScore))) : Value(18);
+              alpha = std::max(prevScore - delta1,-VALUE_INFINITE);
+              beta  = std::min(prevScore + delta2, VALUE_INFINITE);
           }
 
           // Start with a small aspiration window and, in the case of a fail
@@ -419,7 +420,7 @@ void Thread::search() {
               if (bestValue <= alpha)
               {
                   beta = (alpha + beta) / 2;
-                  alpha = std::max(bestValue - delta, -VALUE_INFINITE);
+                  alpha = std::max(bestValue - delta1, -VALUE_INFINITE);
 
                   if (mainThread)
                   {
@@ -430,12 +431,13 @@ void Thread::search() {
               else if (bestValue >= beta)
               {
                   alpha = (alpha + beta) / 2;
-                  beta = std::min(bestValue + delta, VALUE_INFINITE);
+                  beta = std::min(bestValue + delta2, VALUE_INFINITE);
               }
               else
                   break;
 
-              delta += delta / 4 + 5;
+              delta1 += delta1 / 4 + 5;
+              delta2 += delta2 / 4 + 5;
 
               assert(alpha >= -VALUE_INFINITE && beta <= VALUE_INFINITE);
           }
