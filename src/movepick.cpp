@@ -37,7 +37,7 @@ namespace {
   // An insertion sort, which sorts moves in descending order up to and including a given limit.
   // The order of moves smaller than the limit is left unspecified.
   // To keep the implementation simple, *begin is always included in the list of sorted moves.
-  void partial_insertion_sort(ExtMove* begin, ExtMove* end, Value limit)
+  void partial_insertion_sort(ExtMove* begin, ExtMove* end, int limit)
   {
     for (ExtMove *sortedEnd = begin + 1, *p = begin + 1; p < end; ++p)
         if (p->value >= limit)
@@ -242,7 +242,7 @@ Move MovePicker::next_move(bool skipQuiets) {
       endMoves = generate<QUIETS>(pos, cur);
       score<QUIETS>();
 
-      partial_insertion_sort(cur, endMoves, Value(-4000 * depth / ONE_PLY));
+      partial_insertion_sort(cur, endMoves, -4000 * depth / ONE_PLY);
       ++stage;
 
   case QUIET:
