@@ -74,13 +74,13 @@ namespace {
 
   // Futility and reductions lookup tables, initialized at startup
   int FutilityMoveCounts[2][16]; // [improving][depth]
-  int Reductions[2][2][64][64];  // [pv][improving][depth][moveNumber]
+  int Reductions[2][2][128][64];  // [pv][improving][depth][moveNumber]
 
   // Threshold used for countermoves based pruning
   const int CounterMovePruneThreshold = 0;
 
   template <bool PvNode> Depth reduction(bool i, Depth d, int mn) {
-    return Reductions[PvNode][i][std::min(d / ONE_PLY, 63)][std::min(mn, 63)] * ONE_PLY;
+    return Reductions[PvNode][i][std::min(d / ONE_PLY, 127)][std::min(mn, 63)] * ONE_PLY;
   }
 
   // History and stats update bonus, based on depth
@@ -164,10 +164,10 @@ namespace {
 void Search::init() {
 
   for (int imp = 0; imp <= 1; ++imp)
-      for (int d = 1; d < 64; ++d)
+      for (int d = 1; d < 128; ++d)
           for (int mc = 1; mc < 64; ++mc)
           {
-              double r = log(d) * log(mc) / 1.95;
+              double r = 0.22 * d * (1.0 - exp(-8.0 / d)) * log(mc);
 
               Reductions[NonPV][imp][d][mc] = int(std::round(r));
               Reductions[PV][imp][d][mc] = std::max(Reductions[NonPV][imp][d][mc] - 1, 0);
@@ -327,7 +327,7 @@ void MainThread::search() {
 void Thread::search() {
 
   Stack stack[MAX_PLY+7], *ss = stack+4; // To allow referencing (ss-4) and (ss+2)
-  Value bestValue, alpha, beta, delta;
+  Value bestValue, alpha, beta, delta1, delta2;
   Move easyMove = MOVE_NONE;
   MainThread* mainThread = (this == Threads.main() ? Threads.main() : nullptr);
 
@@ -335,7 +335,7 @@ void Thread::search() {
   for(int i = 4; i > 0; i--)
      (ss-i)->counterMoves = &this->counterMoveHistory[NO_PIECE][0]; // Use as sentinel
 
-  bestValue = delta = alpha = -VALUE_INFINITE;
+  bestValue = delta1 = delta2 = alpha = -VALUE_INFINITE;
   beta = VALUE_INFINITE;
   completedDepth = DEPTH_ZERO;
 
@@ -386,9 +386,11 @@ void Thread::search() {
           // Reset aspiration window starting size
           if (rootDepth >= 5 * ONE_PLY)
           {
-              delta = Value(18);
-              alpha = std::max(rootMoves[PVIdx].previousScore - delta,-VALUE_INFINITE);
-              beta  = std::min(rootMoves[PVIdx].previousScore + delta, VALUE_INFINITE);
+              Value prevScore = rootMoves[PVIdx].previousScore;
+              delta1 = (prevScore < 0) ? Value(int(8.0 + 0.1 * abs(prevScore))) : Value(18);
+              delta2 = (prevScore > 0) ? Value(int(8.0 + 0.1 * abs(prevScore))) : Value(18);
+              alpha = std::max(prevScore - delta1,-VALUE_INFINITE);
+              beta  = std::min(prevScore + delta2, VALUE_INFINITE);
           }
 
           // Start with a small aspiration window and, in the case of a fail
@@ -425,7 +427,7 @@ void Thread::search() {
               if (bestValue <= alpha)
               {
                   beta = (alpha + beta) / 2;
-                  alpha = std::max(bestValue - delta, -VALUE_INFINITE);
+                  alpha = std::max(bestValue - delta1, -VALUE_INFINITE);
 
                   if (mainThread)
                   {
@@ -436,12 +438,13 @@ void Thread::search() {
               else if (bestValue >= beta)
               {
                   alpha = (alpha + beta) / 2;
-                  beta = std::min(bestValue + delta, VALUE_INFINITE);
+                  beta = std::min(bestValue + delta2, VALUE_INFINITE);
               }
               else
                   break;
 
-              delta += delta / 4 + 5;
+              delta1 += delta1 / 4 + 5;
+              delta2 += delta2 / 4 + 5;
 
               assert(alpha >= -VALUE_INFINITE && beta <= VALUE_INFINITE);
           }
@@ -740,7 +743,9 @@ namespace {
     if (   !PvNode
         &&  eval >= beta
         && (ss->staticEval >= beta - 35 * (depth / ONE_PLY - 6) || depth >= 13 * ONE_PLY)
-        &&  pos.non_pawn_material(pos.side_to_move()))
+        &&  thisThread->maxPly + 5 * ONE_PLY > thisThread->rootDepth
+        && !(depth > 12 * ONE_PLY && MoveList<LEGAL>(pos).size() < 4)
+        &&  pos.non_pawn_material(pos.side_to_move()) > (depth > 12 * ONE_PLY) * BishopValueMg)
     {
 
         assert(eval - beta >= 0);
