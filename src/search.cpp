@@ -186,7 +186,7 @@ void Search::init() {
 }
 
 
-/// Search::clear() resets search state to zero, to obtain reproducible results
+/// Search::clear() resets search state to its initial value, to obtain reproducible results
 
 void Search::clear() {
 
@@ -198,9 +198,10 @@ void Search::clear() {
       th->history.clear();
       th->counterMoveHistory.clear();
       th->resetCalls = true;
+
       CounterMoveStats& cm = th->counterMoveHistory[NO_PIECE][0];
-      int* t = &cm[NO_PIECE][0];
-      std::fill(t, t + sizeof(cm), CounterMovePruneThreshold - 1);
+      auto* t = &cm[NO_PIECE][0];
+      std::fill(t, t + sizeof(cm)/sizeof(*t), CounterMovePruneThreshold - 1);
   }
 
   Threads.main()->previousScore = VALUE_INFINITE;
@@ -557,7 +558,7 @@ namespace {
     // Step 1. Initialize node
     Thread* thisThread = pos.this_thread();
     inCheck = pos.checkers();
-    moveCount = quietCount =  ss->moveCount = 0;
+    moveCount = quietCount = ss->moveCount = 0;
     ss->history = 0;
     bestValue = -VALUE_INFINITE;
     ss->ply = (ss-1)->ply + 1;
@@ -911,7 +912,7 @@ moves_loop: // When in check search starts from here
       }
       else if (    givesCheck
                && !moveCountPruning
-               &&  pos.see_ge(move, VALUE_ZERO))
+               &&  pos.see_ge(move))
           extension = ONE_PLY;
 
       // Calculate new depth for this move
@@ -997,8 +998,8 @@ moves_loop: // When in check search starts from here
               // Decrease reduction for moves that escape a capture. Filter out
               // castling moves, because they are coded as "king captures rook" and
               // hence break make_move().
-              else if (   type_of(move) == NORMAL
-                       && !pos.see_ge(make_move(to_sq(move), from_sq(move)),  VALUE_ZERO))
+              else if (    type_of(move) == NORMAL
+                       && !pos.see_ge(make_move(to_sq(move), from_sq(move))))
                   r -= 2 * ONE_PLY;
 
               ss->history =  cmh[moved_piece][to_sq(move)]
@@ -1137,7 +1138,6 @@ moves_loop: // When in check search starts from here
                    :     inCheck ? mated_in(ss->ply) : DrawValue[pos.side_to_move()];
     else if (bestMove)
     {
-
         // Quiet best move: update move sorting heuristics
         if (!pos.capture_or_promotion(bestMove))
             update_stats(pos, ss, bestMove, quietsSearched, quietCount, stat_bonus(depth));
@@ -1186,6 +1186,7 @@ moves_loop: // When in check search starts from here
     Value bestValue, value, ttValue, futilityValue, futilityBase, oldAlpha;
     bool ttHit, givesCheck, evasionPrunable;
     Depth ttDepth;
+    int moveCount;
 
     if (PvNode)
     {
@@ -1196,6 +1197,7 @@ moves_loop: // When in check search starts from here
 
     ss->currentMove = bestMove = MOVE_NONE;
     ss->ply = (ss-1)->ply + 1;
+    moveCount = 0;
 
     // Check for an instant draw or if the maximum ply has been reached
     if (pos.is_draw(ss->ply) || ss->ply >= MAX_PLY)
@@ -1279,6 +1281,8 @@ moves_loop: // When in check search starts from here
                   ? pos.check_squares(type_of(pos.piece_on(from_sq(move)))) & to_sq(move)
                   : pos.gives_check(move);
 
+      moveCount++;
+
       // Futility pruning
       if (   !InCheck
           && !givesCheck
@@ -1304,14 +1308,14 @@ moves_loop: // When in check search starts from here
 
       // Detect non-capture evasions that are candidates to be pruned
       evasionPrunable =    InCheck
-                       &&  depth != DEPTH_ZERO
+                       &&  (depth != DEPTH_ZERO || moveCount > 2)
                        &&  bestValue > VALUE_MATED_IN_MAX_PLY
                        && !pos.capture(move);
 
       // Don't search moves with negative SEE values
       if (  (!InCheck || evasionPrunable)
           &&  type_of(move) != PROMOTION
-          &&  !pos.see_ge(move, VALUE_ZERO))
+          &&  !pos.see_ge(move))
           continue;
 
       // Speculative prefetch as early as possible
@@ -1319,7 +1323,10 @@ moves_loop: // When in check search starts from here
 
       // Check for legality just before making the move
       if (!pos.legal(move))
+      {
+          moveCount--;
           continue;
+      }
 
       ss->currentMove = move;
 
