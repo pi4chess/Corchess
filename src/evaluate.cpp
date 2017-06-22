@@ -828,7 +828,6 @@ namespace {
     pe = Pawns::probe(pos);
     score += pe->pawns_score();
 
-   
     // Main evaluation begins here
 
     initialize<WHITE>();
@@ -877,7 +876,6 @@ namespace {
     }
 
     return (pos.side_to_move() == WHITE ? v : -v) + Eval::Tempo; // Side to move point of view
-
   }
 
 } // namespace
