@@ -828,6 +828,8 @@ namespace {
     pe = Pawns::probe(pos);
     score += pe->pawns_score();
 
+    Value v;
+
     // Main evaluation begins here
 
     initialize<WHITE>();
