@@ -101,10 +101,6 @@ namespace {
     const Color Them = (Us == WHITE ? BLACK : WHITE);
 
     int bonus = PawnSet[pieceCount[Us][PAWN]];
-    
-    if  (pieceCount[Us][QUEEN] == 1 && pieceCount[Them][QUEEN] == 0)
-         
-    bonus += QueenMinorsImbalance[pieceCount[Them][KNIGHT] + pieceCount[Them][BISHOP]];
 
     // Second-degree polynomial material imbalance by Tord Romstad
     for (int pt1 = NO_PIECE_TYPE; pt1 <= QUEEN; ++pt1)
