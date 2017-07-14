@@ -731,7 +731,7 @@ namespace {
     if (   !PvNode
         &&  eval >= beta
         && (ss->staticEval >= beta - int(320 * log(depth / ONE_PLY)) + 500)
-        &&  thisThread->selDepth + 5 > thisThread->rootDepth / ONE_PLY;
+        &&  thisThread->selDepth + 5 > thisThread->rootDepth / ONE_PLY
         && !(depth > 12 * ONE_PLY && MoveList<LEGAL>(pos).size() < 4)
         &&  pos.non_pawn_material(pos.side_to_move()) > (depth > 12 * ONE_PLY) * BishopValueMg)
     {
