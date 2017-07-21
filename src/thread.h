@@ -2,7 +2,7 @@
   Stockfish, a UCI chess playing engine derived from Glaurung 2.1
   Copyright (C) 2004-2008 Tord Romstad (Glaurung author)
   Copyright (C) 2008-2015 Marco Costalba, Joona Kiiski, Tord Romstad
-  Copyright (C) 2015-2017 Marco Costalba, Joona Kiiski, Gary Linscott, Tord Romstad
+  Copyright (C) 2015-2016 Marco Costalba, Joona Kiiski, Gary Linscott, Tord Romstad
 
   Stockfish is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -18,95 +18,92 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef THREAD_H_INCLUDED
-#define THREAD_H_INCLUDED
+#ifndef THREAD_H
+#define THREAD_H
 
-#include <atomic>
-#include <condition_variable>
-#include <mutex>
-#include <thread>
-#include <vector>
+#include <stdatomic.h>
+#ifndef __WIN32__
+#include <pthread.h>
+#else
+#include <windows.h>
+#endif
 
-#include "material.h"
-#include "movepick.h"
-#include "pawns.h"
-#include "position.h"
-#include "search.h"
-#include "thread_win32.h"
+#include "types.h"
 
+#define MAX_THREADS 128
 
-/// Thread struct keeps together all the thread-related stuff. We also use
-/// per-thread pawn and material hash tables so that once we get a pointer to an
-/// entry its life time is unlimited and we don't have to care about someone
-/// changing the entry under our feet.
+#ifndef __WIN32__
+#define LOCK_T pthread_mutex_t
+#define LOCK_INIT(x) pthread_mutex_init(&(x), NULL)
+#define LOCK_DESTROY(x) pthread_mutex_destroy(&(x))
+#define LOCK(x) pthread_mutex_lock(&(x))
+#define UNLOCK(x) pthread_mutex_unlock(&(x))
+#else
+#define LOCK_T HANDLE
+#define LOCK_INIT(x) do { x = CreateMutex(NULL, FALSE, NULL); } while (0)
+#define LOCK_DESTROY(x) CloseHandle(x)
+#define LOCK(x) WaitForSingleObject(x, INFINITE)
+#define UNLOCK(x) ReleaseMutex(x)
+#endif
 
-class Thread {
-
-  std::thread nativeThread;
-  Mutex mutex;
-  ConditionVariable sleepCondition;
-  bool exit, searching;
-
-public:
-  Thread();
-  virtual ~Thread();
-  virtual void search();
-  void idle_loop();
-  void start_searching(bool resume = false);
-  void wait_for_search_finished();
-  void wait(std::atomic_bool& condition);
-
-  Pawns::Table pawnsTable;
-  Material::Table materialTable;
-  Endgames endgames;
-  size_t idx, PVIdx;
-  int selDepth;
-  std::atomic<uint64_t> nodes, tbHits;
-
-  Position rootPos;
-  Search::RootMoves rootMoves;
-  Depth rootDepth;
-  Depth completedDepth;
-  CounterMoveStat counterMoves;
-  ButterflyHistory history;
-  CounterMoveHistoryStat counterMoveHistory;
-};
+void thread_init(void *arg);
+void thread_create(int idx);
+void thread_search(Pos *pos);
+void thread_idle_loop(Pos *pos);
+void thread_start_searching(Pos *pos, int resume);
+void thread_wait_for_search_finished(Pos *pos);
+void thread_wait(Pos *pos, atomic_bool *b);
 
 
-/// MainThread is a derived class with a specific overload for the main thread
+// MainThread struct seems to exist mostly for easy move.
 
-struct MainThread : public Thread {
-  virtual void search();
-  void check_time();
-
-  bool easyMovePlayed, failedLow;
+struct MainThread {
+  int easyMovePlayed, failedLow;
   double bestMoveChanges;
   Value previousScore;
-  int callsCnt = 0;
 };
 
+typedef struct MainThread MainThread;
 
-/// ThreadPool struct handles all the threads-related stuff like init, starting,
-/// parking and, most importantly, launching a thread. All the access to threads
-/// data is done through this class.
+extern MainThread mainThread;
 
-struct ThreadPool : public std::vector<Thread*> {
+void mainthread_search();
 
-  void init(); // No constructor and destructor, threads rely on globals that should
-  void exit(); // be initialized and valid during the whole thread lifetime.
 
-  MainThread* main() { return static_cast<MainThread*>(at(0)); }
-  void start_thinking(Position&, StateListPtr&, const Search::LimitsType&);
-  void read_uci_options();
-  uint64_t nodes_searched() const;
-  uint64_t tb_hits() const;
+// ThreadPool struct handles all the threads-related stuff like init,
+// starting, parking and, most importantly, launching a thread. All the
+// access to threads data is done through this class.
 
-  std::atomic_bool stop, stopOnPonderhit;
-
-private:
-  StateListPtr setupStates;
+struct ThreadPool {
+  Pos *pos[MAX_THREADS];
+  int num_threads;
+#ifndef __WIN32__
+  pthread_mutex_t mutex;
+  pthread_cond_t sleepCondition;
+  int initializing;
+#else
+  HANDLE event;
+#endif
 };
+
+typedef struct ThreadPool ThreadPool;
+
+void threads_init(void);
+void threads_exit(void);
+void threads_start_thinking(Pos *pos, LimitsType *);
+void threads_set_number(int num);
+uint64_t threads_nodes_searched(void);
+uint64_t threads_tb_hits(void);
 
 extern ThreadPool Threads;
 
-#endif // #ifndef THREAD_H_INCLUDED
+INLINE Pos *threads_main(void)
+{
+  return Threads.pos[0];
+}
+
+CounterMoveHistoryStats **cmh_tables;
+int num_cmh_tables;
+
+#endif
+

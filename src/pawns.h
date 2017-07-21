@@ -2,7 +2,7 @@
   Stockfish, a UCI chess playing engine derived from Glaurung 2.1
   Copyright (C) 2004-2008 Tord Romstad (Glaurung author)
   Copyright (C) 2008-2015 Marco Costalba, Joona Kiiski, Tord Romstad
-  Copyright (C) 2015-2017 Marco Costalba, Joona Kiiski, Gary Linscott, Tord Romstad
+  Copyright (C) 2015-2016 Marco Costalba, Joona Kiiski, Gary Linscott, Tord Romstad
 
   Stockfish is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -18,71 +18,91 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef PAWNS_H_INCLUDED
-#define PAWNS_H_INCLUDED
+#ifndef PAWNS_H
+#define PAWNS_H
 
 #include "misc.h"
 #include "position.h"
 #include "types.h"
 
-namespace Pawns {
+// Number of entries in the pawn hash table. Must be a power of 2.
+#define PAWN_ENTRIES 16384
 
-/// Pawns::Entry contains various information about a pawn structure. A lookup
-/// to the pawn hash table (performed by calling the probe function) returns a
-/// pointer to an Entry object.
+// PawnEntry contains various information about a pawn structure. A lookup
+// to the pawn hash table (performed by calling the probe function) returns
+// a pointer to an Entry object.
 
-struct Entry {
-
-  Score pawns_score() const { return score; }
-  Bitboard pawn_attacks(Color c) const { return pawnAttacks[c]; }
-  Bitboard passed_pawns(Color c) const { return passedPawns[c]; }
-  Bitboard pawn_attacks_span(Color c) const { return pawnAttacksSpan[c]; }
-  int pawn_asymmetry() const { return asymmetry; }
-  int open_files() const { return openFiles; }
-
-  int semiopen_file(Color c, File f) const {
-    return semiopenFiles[c] & (1 << f);
-  }
-
-  int semiopen_side(Color c, File f, bool leftSide) const {
-    return semiopenFiles[c] & (leftSide ? (1 << f) - 1 : ~((1 << (f + 1)) - 1));
-  }
-
-  int pawns_on_same_color_squares(Color c, Square s) const {
-    return pawnsOnSquares[c][!!(DarkSquares & s)];
-  }
-
-  template<Color Us>
-  Score king_safety(const Position& pos, Square ksq) {
-    return  kingSquares[Us] == ksq && castlingRights[Us] == pos.can_castle(Us)
-          ? kingSafety[Us] : (kingSafety[Us] = do_king_safety<Us>(pos, ksq));
-  }
-
-  template<Color Us>
-  Score do_king_safety(const Position& pos, Square ksq);
-
-  template<Color Us>
-  Value shelter_storm(const Position& pos, Square ksq);
-
+struct PawnEntry {
   Key key;
+  Bitboard passedPawns[2];
+  Bitboard pawnAttacks[2];
+  Bitboard pawnAttacksSpan[2];
+  Score kingSafety[2];
   Score score;
-  Bitboard passedPawns[COLOR_NB];
-  Bitboard pawnAttacks[COLOR_NB];
-  Bitboard pawnAttacksSpan[COLOR_NB];
-  Square kingSquares[COLOR_NB];
-  Score kingSafety[COLOR_NB];
-  int castlingRights[COLOR_NB];
-  int semiopenFiles[COLOR_NB];
-  int pawnsOnSquares[COLOR_NB][COLOR_NB]; // [color][light/dark squares]
-  int asymmetry;
-  int openFiles;
+  uint8_t kingSquares[2];
+  uint8_t castlingRights[2];
+  uint8_t semiopenFiles[2];
+  uint8_t pawnsOnSquares[2][2]; // [color][light/dark squares]
+  uint8_t asymmetry;
+  uint8_t openFiles;
 };
 
-typedef HashTable<Entry, 16384> Table;
+typedef struct PawnEntry PawnEntry;
+typedef PawnEntry PawnTable[PAWN_ENTRIES];
 
-void init();
-Entry* probe(const Position& pos);
+Score do_king_safety_white(PawnEntry *pe, const Pos *pos, Square ksq);
+Score do_king_safety_black(PawnEntry *pe, const Pos *pos, Square ksq);
 
-} // namespace Pawns
+Value shelter_storm_white(const Pos *pos, Square ksq);
+Value shelter_storm_black(const Pos *pos, Square ksq);
 
-#endif // #ifndef PAWNS_H_INCLUDED
+void pawn_entry_fill(const Pos *pos, PawnEntry *e, Key k);
+
+INLINE PawnEntry *pawn_probe(const Pos *pos)
+{
+  Key key = pos_pawn_key();
+  PawnEntry *e = &pos->pawnTable[key & (PAWN_ENTRIES - 1)];
+
+  if (unlikely(e->key != key))
+    pawn_entry_fill(pos, e, key);
+
+  return e;
+}
+
+INLINE int semiopen_file(PawnEntry *pe, int c, int f)
+{
+  return pe->semiopenFiles[c] & (1 << f);
+}
+
+INLINE int semiopen_side(PawnEntry *pe, int c, int f, int left)
+{
+  return pe->semiopenFiles[c] & (left ? (1 << f) - 1 : ~((1 << (f + 1)) - 1));
+}
+
+INLINE int pawns_on_same_color_squares(PawnEntry *pe, int c, Square s)
+{
+  return pe->pawnsOnSquares[c][!!(DarkSquares & sq_bb(s))];
+}
+
+INLINE Score king_safety_white(PawnEntry *pe, const Pos *pos, Square ksq)
+{
+  if (   pe->kingSquares[WHITE] == ksq
+      && pe->castlingRights[WHITE] == can_castle_c(WHITE))
+    return pe->kingSafety[WHITE];
+  else
+    return pe->kingSafety[WHITE] = do_king_safety_white(pe, pos, ksq);
+}
+
+INLINE Score king_safety_black(PawnEntry *pe, const Pos *pos, Square ksq)
+{
+  if (   pe->kingSquares[BLACK] == ksq
+      && pe->castlingRights[BLACK] == can_castle_c(BLACK))
+    return pe->kingSafety[BLACK];
+  else
+    return pe->kingSafety[BLACK] = do_king_safety_black(pe, pos, ksq);
+}
+
+void pawn_init();
+
+#endif
+

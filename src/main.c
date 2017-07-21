@@ -18,34 +18,39 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TIMEMAN_H
-#define TIMEMAN_H
+#include <stdio.h>
 
-#include "misc.h"
+#include "bitboard.h"
+#include "endgame.h"
+#include "pawns.h"
+#include "position.h"
 #include "search.h"
 #include "thread.h"
+#include "tt.h"
+#include "uci.h"
+#include "tbprobe.h"
 
-// The TimeManagement class computes the optimal time to think depending on
-// the maximum available time, the game move number and other parameters.
-
-struct TimeManagement {
-  TimePoint startTime;
-  int optimumTime;
-  int maximumTime;
-  int64_t availableNodes;
-};
-
-extern struct TimeManagement Time;
-
-void time_init(int us, int ply);
-
-#define time_optimum() Time.optimumTime
-#define time_maximum() Time.maximumTime
-
-INLINE int time_elapsed(void)
+int main(int argc, char **argv)
 {
-  return Limits.npmsec ? threads_nodes_searched() : now() - Time.startTime;
-}
+  print_engine_info(0);
 
-#endif
+  psqt_init();
+  zob_init();
+  bitboards_init();
+  bitbases_init();
+  search_init();
+  pawn_init();
+  endgames_init();
+  threads_init();
+  options_init();
+
+  uci_loop(argc, argv);
+
+  threads_exit();
+  TB_free();
+  options_free();
+  tt_free();
+
+  return 0;
+}
 

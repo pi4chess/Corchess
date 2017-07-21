@@ -2,7 +2,7 @@
   Stockfish, a UCI chess playing engine derived from Glaurung 2.1
   Copyright (C) 2004-2008 Tord Romstad (Glaurung author)
   Copyright (C) 2008-2015 Marco Costalba, Joona Kiiski, Tord Romstad
-  Copyright (C) 2015-2017 Marco Costalba, Joona Kiiski, Gary Linscott, Tord Romstad
+  Copyright (C) 2015-2016 Marco Costalba, Joona Kiiski, Gary Linscott, Tord Romstad
 
   Stockfish is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -18,108 +18,30 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef ENDGAME_H_INCLUDED
-#define ENDGAME_H_INCLUDED
+#ifndef ENDGAME_H
+#define ENDGAME_H
 
-#include <map>
-#include <memory>
-#include <string>
-#include <type_traits>
-#include <utility>
-
-#include "position.h"
 #include "types.h"
 
+typedef struct Pos Pos;
 
-/// EndgameCode lists all supported endgame functions by corresponding codes
+typedef Value (EgFunc)(const Pos *, unsigned);
 
-enum EndgameCode {
+EgFunc EvaluateKPK, EvaluateKNNK, EvaluateKBNK, EvaluateKRKP,
+       EvaluateKRKB, EvaluateKRKN, EvaluateKQKP, EvaluateKQKR,
+       EvaluateKXK;
 
-  EVALUATION_FUNCTIONS,
-  KNNK,  // KNN vs K
-  KXK,   // Generic "mate lone king" eval
-  KBNK,  // KBN vs K
-  KPK,   // KP vs K
-  KRKP,  // KR vs KP
-  KRKB,  // KR vs KB
-  KRKN,  // KR vs KN
-  KQKP,  // KQ vs KP
-  KQKR,  // KQ vs KR
+EgFunc ScaleKNPK, ScaleKNPKB, ScaleKRPKR, ScaleKRPKB,
+       ScaleKBPKB, ScaleKBPKN, ScaleKBPPKB, ScaleKRPPKRP,
+       ScaleKBPsK, ScaleKQKRPs, ScaleKPKP, ScaleKPsK;
 
-  SCALING_FUNCTIONS,
-  KBPsK,   // KB and pawns vs K
-  KQKRPs,  // KQ vs KR and pawns
-  KRPKR,   // KRP vs KR
-  KRPKB,   // KRP vs KB
-  KRPPKRP, // KRPP vs KRP
-  KPsK,    // K and pawns vs K
-  KBPKB,   // KBP vs KB
-  KBPPKB,  // KBPP vs KB
-  KBPKN,   // KBP vs KN
-  KNPK,    // KNP vs K
-  KNPKB,   // KNP vs KB
-  KPKP     // KP vs KP
-};
+#define NUM_EVAL 8
+#define NUM_SCALING 8
 
+extern EgFunc *endgame_funcs[22];
+extern Key endgame_keys[16][2];
 
-/// Endgame functions can be of two types depending on whether they return a
-/// Value or a ScaleFactor.
-template<EndgameCode E> using
-eg_type = typename std::conditional<(E < SCALING_FUNCTIONS), Value, ScaleFactor>::type;
+void endgames_init(void);
 
+#endif
 
-/// Base and derived functors for endgame evaluation and scaling functions
-
-template<typename T>
-struct EndgameBase {
-
-  explicit EndgameBase(Color c) : strongSide(c), weakSide(~c) {}
-  virtual ~EndgameBase() = default;
-  virtual T operator()(const Position&) const = 0;
-
-  const Color strongSide, weakSide;
-};
-
-
-template<EndgameCode E, typename T = eg_type<E>>
-struct Endgame : public EndgameBase<T> {
-
-  explicit Endgame(Color c) : EndgameBase<T>(c) {}
-  T operator()(const Position&) const;
-};
-
-
-/// The Endgames class stores the pointers to endgame evaluation and scaling
-/// base objects in two std::map. We use polymorphism to invoke the actual
-/// endgame function by calling its virtual operator().
-
-class Endgames {
-
-  template<typename T> using Ptr = std::unique_ptr<EndgameBase<T>>;
-  template<typename T> using Map = std::map<Key, Ptr<T>>;
-
-  template<typename T>
-  Map<T>& map() {
-    return std::get<std::is_same<T, ScaleFactor>::value>(maps);
-  }
-
-  template<EndgameCode E, typename T = eg_type<E>, typename P = Ptr<T>>
-  void add(const std::string& code) {
-
-    StateInfo st;
-    map<T>()[Position().set(code, WHITE, &st).material_key()] = P(new Endgame<E>(WHITE));
-    map<T>()[Position().set(code, BLACK, &st).material_key()] = P(new Endgame<E>(BLACK));
-  }
-
-  std::pair<Map<Value>, Map<ScaleFactor>> maps;
-
-public:
-  Endgames();
-
-  template<typename T>
-  EndgameBase<T>* probe(Key key) {
-    return map<T>().count(key) ? map<T>()[key].get() : nullptr;
-  }
-};
-
-#endif // #ifndef ENDGAME_H_INCLUDED

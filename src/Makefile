@@ -22,25 +22,23 @@
 ### ==========================================================================
 
 ### Establish the operating system name
-KERNEL = $(shell uname -s)
-ifeq ($(KERNEL),Linux)
-	OS = $(shell uname -o)
-endif
+UNAME = $(shell uname)
 
 ### Executable name
-EXE = corchess
+EXE = CiChess
 
 ### Installation dir definitions
 PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
 
 ### Built-in benchmark for pgo-builds
-PGOBENCH = ./$(EXE) bench
+PGOBENCH = ./$(EXE) bench 16 1 15
 
 ### Object files
 OBJS = benchmark.o bitbase.o bitboard.o endgame.o evaluate.o main.o \
 	material.o misc.o movegen.o movepick.o pawns.o position.o psqt.o \
-	search.o thread.o timeman.o tt.o uci.o ucioption.o syzygy/tbprobe.o
+	search.o tbprobe.o thread.o timeman.o tt.o uci.o ucioption.o \
+        numa.o settings.o
 
 ### ==========================================================================
 ### Section 2. High-level Configuration
@@ -50,9 +48,6 @@ OBJS = benchmark.o bitbase.o bitboard.o endgame.o evaluate.o main.o \
 # ----------------------------------------------------------------------------
 #
 # debug = yes/no      --- -DNDEBUG         --- Enable/Disable debug mode
-# sanitize = undefined/thread/no (-fsanitize )
-#                     --- ( undefined )    --- enable undefined behavior checks
-#                     --- ( thread    )    --- enable threading error  checks
 # optimize = yes/no   --- (-O3/-fast etc.) --- Enable/Disable optimizations
 # arch = (name)       --- (-arch)          --- Target architecture
 # bits = 64/32        --- -DIS_64BIT       --- 64-/32-bit operating system
@@ -60,20 +55,24 @@ OBJS = benchmark.o bitbase.o bitboard.o endgame.o evaluate.o main.o \
 # popcnt = yes/no     --- -DUSE_POPCNT     --- Use popcnt asm-instruction
 # sse = yes/no        --- -msse            --- Use Intel Streaming SIMD Extensions
 # pext = yes/no       --- -DUSE_PEXT       --- Use pext x86_64 asm-instruction
+# native = yes/no     --- -march=native    --- Optimize for local CPU
+# numa = yes/no       --- -DNUMA           --- Enable NUMA support
 #
 # Note that Makefile is space sensitive, so when adding new architectures
 # or modifying existing flags, you have to make sure there are no extra spaces
 # at the end of the line for flag values.
 
 ### 2.1. General and architecture defaults
-optimize = yes
 debug = no
-sanitize = no
+optimize = yes
+arch = x86_32
 bits = 32
 prefetch = no
 popcnt = no
 sse = no
 pext = no
+native = no
+numa = no
 
 ### 2.2 Architecture specific
 
@@ -141,9 +140,9 @@ endif
 
 ### 3.1 Selecting compiler (default = gcc)
 
-CXXFLAGS += -Wall -Wcast-qual -fno-exceptions -fno-rtti -std=c++11 $(EXTRACXXFLAGS)
-DEPENDFLAGS += -std=c++11
-LDFLAGS += $(EXTRALDFLAGS)
+CFLAGS += -Wall -std=c11 $(EXTRACFLAGS)
+DEPENDFLAGS += -std=c11
+LDFLAGS += $(EXTRALDFLAGS) -lm
 
 ifeq ($(COMP),)
 	COMP=gcc
@@ -151,20 +150,9 @@ endif
 
 ifeq ($(COMP),gcc)
 	comp=gcc
-	CXX=g++
-	CXXFLAGS += -pedantic -Wextra -Wshadow
-
-	ifeq ($(ARCH),armv7)
-		ifeq ($(OS),Android)
-			CXXFLAGS += -m$(bits)
-			LDFLAGS += -m$(bits)
-		endif
-	else
-		CXXFLAGS += -m$(bits)
-		LDFLAGS += -m$(bits)
-	endif
-
-	ifneq ($(KERNEL),Darwin)
+	CC=gcc
+	CFLAGS += -pedantic -Wextra -Wshadow -m$(bits)
+	ifneq ($(UNAME),Darwin)
 	   LDFLAGS += -Wl,--no-as-needed
 	endif
 endif
@@ -172,141 +160,128 @@ endif
 ifeq ($(COMP),mingw)
 	comp=mingw
 
-	ifeq ($(KERNEL),Linux)
+	ifeq ($(UNAME),Linux)
 		ifeq ($(bits),64)
-			ifeq ($(shell which x86_64-w64-mingw32-c++-posix),)
-				CXX=x86_64-w64-mingw32-c++
+ 			ifeq ($(shell which x86_64-w64-mingw32-cc-posix),)
+				CC=x86_64-w64-mingw32-gcc
 			else
-				CXX=x86_64-w64-mingw32-c++-posix
+				CC=x86_64-w64-mingw32-cc-posix
 			endif
 		else
-			ifeq ($(shell which i686-w64-mingw32-c++-posix),)
-				CXX=i686-w64-mingw32-c++
+			ifeq ($(shell which i686-w64-mingw32-cc-posix),)
+				CC=i686-w64-mingw32-cc
 			else
-				CXX=i686-w64-mingw32-c++-posix
+				CC=i686-w64-mingw32-cc-posix
 			endif
 		endif
 	else
-		CXX=g++
+		CC=gcc
 	endif
 
-	CXXFLAGS += -Wextra -Wshadow
+	CFLAGS += -Wextra -Wshadow
 	LDFLAGS += -static
 endif
 
 ifeq ($(COMP),icc)
 	comp=icc
-	CXX=icpc
-	CXXFLAGS += -diag-disable 1476,10120 -Wcheck -Wabi -Wdeprecated -strict-ansi
+	CC=icpc
+	CFLAGS += -diag-disable 1476,10120 -Wcheck -Wabi -Wdeprecated -strict-ansi
 endif
 
 ifeq ($(COMP),clang)
 	comp=clang
-	CXX=clang++
-	CXXFLAGS += -pedantic -Wextra -Wshadow
-ifneq ($(KERNEL),Darwin)
-	LDFLAGS += -latomic
-endif
-
-	ifeq ($(ARCH),armv7)
-		ifeq ($(OS),Android)
-			CXXFLAGS += -m$(bits)
-			LDFLAGS += -m$(bits)
-		endif
-	else
-		CXXFLAGS += -m$(bits)
-		LDFLAGS += -m$(bits)
+	CC=clang
+	CFLAGS += -pedantic -Wextra -Wshadow -m$(bits)
+	LDFLAGS += -m$(bits)
+	ifeq ($(UNAME),Darwin)
+		CFLAGS += 
+		DEPENDFLAGS += 
 	endif
 endif
 
 ifeq ($(comp),icc)
+	profile_prepare = icc-profile-prepare
 	profile_make = icc-profile-make
 	profile_use = icc-profile-use
+	profile_clean = icc-profile-clean
 else
-ifeq ($(comp),clang)
-	profile_make = clang-profile-make
-	profile_use = clang-profile-use
-else
+	profile_prepare = gcc-profile-prepare
 	profile_make = gcc-profile-make
 	profile_use = gcc-profile-use
-endif
+	profile_clean = gcc-profile-clean
 endif
 
-ifeq ($(KERNEL),Darwin)
-	CXXFLAGS += -arch $(arch) -mmacosx-version-min=10.9
+ifeq ($(UNAME),Darwin)
+	CFLAGS += -arch $(arch) -mmacosx-version-min=10.9
 	LDFLAGS += -arch $(arch) -mmacosx-version-min=10.9
 endif
 
-### Travis CI script uses COMPILER to overwrite CXX
+### Travis CI script uses COMPILER to overwrite CC
 ifdef COMPILER
-	COMPCXX=$(COMPILER)
+	COMPCC=$(COMPILER)
 endif
 
-### Allow overwriting CXX from command line
-ifdef COMPCXX
-	CXX=$(COMPCXX)
+### Allow overwriting CC from command line
+ifdef COMPCC
+	CC=$(COMPCC)
 endif
 
 ### On mingw use Windows threads, otherwise POSIX
 ifneq ($(comp),mingw)
 	# On Android Bionic's C library comes with its own pthread implementation bundled in
-	ifneq ($(OS),Android)
+	ifneq ($(arch),armv7)
 		# Haiku has pthreads in its libroot, so only link it in on other platforms
-		ifneq ($(KERNEL),Haiku)
+		ifneq ($(UNAME),Haiku)
 			LDFLAGS += -lpthread
 		endif
 	endif
 endif
 
-### 3.2.1 Debugging
+### 3.2 Debugging
 ifeq ($(debug),no)
-	CXXFLAGS += -DNDEBUG
+	CFLAGS += -DNDEBUG
 else
-	CXXFLAGS += -g
-endif
-
-### 3.2.2 Debugging with undefined behavior sanitizers
-ifneq ($(sanitize),no)
-        CXXFLAGS += -g3 -fsanitize=$(sanitize) -fuse-ld=gold
-        LDFLAGS += -fsanitize=$(sanitize) -fuse-ld=gold
+	CFLAGS += -g
 endif
 
 ### 3.3 Optimization
 ifeq ($(optimize),yes)
 
-	CXXFLAGS += -O3
+	CFLAGS += -O3
 
 	ifeq ($(comp),gcc)
 
-		ifeq ($(KERNEL),Darwin)
+		ifeq ($(UNAME),Darwin)
 			ifeq ($(arch),i386)
-				CXXFLAGS += -mdynamic-no-pic
+				CFLAGS += -mdynamic-no-pic
 			endif
 			ifeq ($(arch),x86_64)
-				CXXFLAGS += -mdynamic-no-pic
+				CFLAGS += -mdynamic-no-pic
 			endif
 		endif
 
-		ifeq ($(OS), Android)
-			CXXFLAGS += -fno-gcse -mthumb -march=armv7-a -mfloat-abi=softfp
+		ifeq ($(arch),armv7)
+			CFLAGS += -fno-gcse -mthumb -march=armv7-a -mfloat-abi=softfp
 		endif
 	endif
 
 	ifeq ($(comp),icc)
-		ifeq ($(KERNEL),Darwin)
-			CXXFLAGS += -mdynamic-no-pic
+		ifeq ($(UNAME),Darwin)
+			CFLAGS += -mdynamic-no-pic
 		endif
 	endif
 
 	ifeq ($(comp),clang)
-		ifeq ($(KERNEL),Darwin)
-				CXXFLAGS += -flto
-				LDFLAGS += $(CXXFLAGS)
+		ifeq ($(UNAME),Darwin)
+			ifeq ($(pext),no)
+				CFLAGS += -flto
+				LDFLAGS += $(CFLAGS)
+			endif
 			ifeq ($(arch),i386)
-				CXXFLAGS += -mdynamic-no-pic
+				CFLAGS += -mdynamic-no-pic
 			endif
 			ifeq ($(arch),x86_64)
-				CXXFLAGS += -mdynamic-no-pic
+				CFLAGS += -mdynamic-no-pic
 			endif
 		endif
 	endif
@@ -314,34 +289,49 @@ endif
 
 ### 3.4 Bits
 ifeq ($(bits),64)
-	CXXFLAGS += -DIS_64BIT
+	CFLAGS += -DIS_64BIT
 endif
 
 ### 3.5 prefetch
 ifeq ($(prefetch),yes)
 	ifeq ($(sse),yes)
-		CXXFLAGS += -msse
+		CFLAGS += -msse
 		DEPENDFLAGS += -msse
 	endif
 else
-	CXXFLAGS += -DNO_PREFETCH
+	CFLAGS += -DNO_PREFETCH
 endif
 
 ### 3.6 popcnt
 ifeq ($(popcnt),yes)
 	ifeq ($(comp),icc)
-		CXXFLAGS += -msse3 -DUSE_POPCNT
+		CFLAGS += -msse3 -DUSE_POPCNT
 	else
-		CXXFLAGS += -msse3 -mpopcnt -DUSE_POPCNT
+		CFLAGS += -msse3 -mpopcnt -DUSE_POPCNT
 	endif
 endif
 
 ### 3.7 pext
 ifeq ($(pext),yes)
-	CXXFLAGS += -DUSE_PEXT
+	CFLAGS += -DUSE_PEXT
 	ifeq ($(comp),$(filter $(comp),gcc clang mingw))
-		CXXFLAGS += -mbmi2
+		CFLAGS += -mbmi2
 	endif
+endif
+
+### native
+ifeq ($(native),yes)
+	CFLAGS += -march=native
+endif
+
+### numa
+ifeq ($(numa),yes)
+	CFLAGS += -DNUMA
+        ifeq ($(UNAME),Linux)
+        ifneq ($(comp),mingw)
+		LDFLAGS += -lnuma
+        endif
+        endif
 endif
 
 ### 3.8 Link Time Optimization, it works since gcc 4.5 but not on mingw under Windows.
@@ -350,18 +340,18 @@ endif
 ifeq ($(comp),gcc)
 	ifeq ($(optimize),yes)
 	ifeq ($(debug),no)
-		CXXFLAGS += -flto
-		LDFLAGS += $(CXXFLAGS)
+		CFLAGS +=  -flto
+		LDFLAGS += $(CFLAGS)
 	endif
 	endif
 endif
 
 ifeq ($(comp),mingw)
-	ifeq ($(KERNEL),Linux)
+	ifeq ($(UNAME),Linux)
 	ifeq ($(optimize),yes)
 	ifeq ($(debug),no)
-		CXXFLAGS += -flto
-		LDFLAGS += $(CXXFLAGS)
+		CFLAGS +=  -flto
+		LDFLAGS += $(CFLAGS)
 	endif
 	endif
 	endif
@@ -369,8 +359,8 @@ endif
 
 ### 3.9 Android 5 can only run position independent executables. Note that this
 ### breaks Android 4.0 and earlier.
-ifeq ($(OS), Android)
-	CXXFLAGS += -fPIE
+ifeq ($(arch),armv7)
+	CFLAGS += -fPIE
 	LDFLAGS += -fPIE -pie
 endif
 
@@ -381,9 +371,9 @@ endif
 
 help:
 	@echo ""
-	@echo "To compile stockfish, type: "
+	@echo "To compile Cfish, type: "
 	@echo ""
-	@echo "make target ARCH=arch [COMP=compiler] [COMPCXX=cxx]"
+	@echo "make target ARCH=arch [COMP=compiler] [COMPCC=cc]"
 	@echo ""
 	@echo "Supported targets:"
 	@echo ""
@@ -421,31 +411,34 @@ help:
 	@echo "Advanced examples, for experienced users: "
 	@echo ""
 	@echo "make build ARCH=x86-64 COMP=clang"
-	@echo "make profile-build ARCH=x86-64-modern COMP=gcc COMPCXX=g++-4.8"
+	@echo "make profile-build ARCH=x86-64-modern COMP=gcc COMPCC=gcc-4.8"
 	@echo ""
 
 
-.PHONY: help build profile-build strip install clean objclean profileclean help \
-        config-sanity icc-profile-use icc-profile-make gcc-profile-use gcc-profile-make \
-        clang-profile-use clang-profile-make
-
-build: config-sanity
+.PHONY: build profile-build
+build:
+	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) config-sanity
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) all
 
-profile-build: config-sanity objclean profileclean
+profile-build:
+	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) config-sanity
 	@echo ""
-	@echo "Step 1/4. Building instrumented executable ..."
+	@echo "Step 0/4. Preparing for profile build."
+	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) $(profile_prepare)
+	@echo ""
+	@echo "Step 1/4. Building executable for benchmark ..."
+	@rm -f *.o
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) $(profile_make)
 	@echo ""
 	@echo "Step 2/4. Running benchmark for pgo-build ..."
 	$(PGOBENCH) > /dev/null
 	@echo ""
-	@echo "Step 3/4. Building optimized executable ..."
-	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) objclean
+	@echo "Step 3/4. Building final executable ..."
+	@rm -f *.o
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) $(profile_use)
 	@echo ""
-	@echo "Step 4/4. Deleting profile data ..."
-	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) profileclean
+	@echo "Step 4/4. NOT deleting profile data ..."
+#	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) $(profile_clean)
 
 strip:
 	strip $(EXE)
@@ -455,19 +448,8 @@ install:
 	-cp $(EXE) $(BINDIR)
 	-strip $(BINDIR)/$(EXE)
 
-#clean all
-clean: objclean profileclean
-	@rm -f .depend *~ core
-
-# clean binaries and objects
-objclean:
-	@rm -f $(EXE) $(EXE).exe *.o ./syzygy/*.o
-
-# clean auxiliary profiling files
-profileclean:
-	@rm -rf profdir
-	@rm -f bench.txt *.gcda ./syzygy/*.gcda *.gcno ./syzygy/*.gcno
-	@rm -f stockfish.profdata *.profraw
+clean:
+	$(RM) $(EXE) $(EXE).exe *.o .depend *~ core bench.txt *.gcda
 
 default:
 	help
@@ -482,26 +464,22 @@ config-sanity:
 	@echo ""
 	@echo "Config:"
 	@echo "debug: '$(debug)'"
-	@echo "sanitize: '$(sanitize)'"
 	@echo "optimize: '$(optimize)'"
 	@echo "arch: '$(arch)'"
 	@echo "bits: '$(bits)'"
-	@echo "kernel: '$(KERNEL)'"
-	@echo "os: '$(OS)'"
 	@echo "prefetch: '$(prefetch)'"
 	@echo "popcnt: '$(popcnt)'"
 	@echo "sse: '$(sse)'"
 	@echo "pext: '$(pext)'"
 	@echo ""
 	@echo "Flags:"
-	@echo "CXX: $(CXX)"
-	@echo "CXXFLAGS: $(CXXFLAGS)"
+	@echo "CC: $(CC)"
+	@echo "CFLAGS: $(CFLAGS)"
 	@echo "LDFLAGS: $(LDFLAGS)"
 	@echo ""
 	@echo "Testing config sanity. If this fails, try 'make help' ..."
 	@echo ""
 	@test "$(debug)" = "yes" || test "$(debug)" = "no"
-	@test "$(sanitize)" = "undefined" || test "$(sanitize)" = "thread" || test "$(sanitize)" = "no"
 	@test "$(optimize)" = "yes" || test "$(optimize)" = "no"
 	@test "$(arch)" = "any" || test "$(arch)" = "x86_64" || test "$(arch)" = "i386" || \
 	 test "$(arch)" = "ppc64" || test "$(arch)" = "ppc" || test "$(arch)" = "armv7"
@@ -513,46 +491,45 @@ config-sanity:
 	@test "$(comp)" = "gcc" || test "$(comp)" = "icc" || test "$(comp)" = "mingw" || test "$(comp)" = "clang"
 
 $(EXE): $(OBJS)
-	$(CXX) -o $@ $(OBJS) $(LDFLAGS)
+	$(CC) -o $@ $(OBJS) $(LDFLAGS)
 
-clang-profile-make:
-	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) \
-	EXTRACXXFLAGS='-fprofile-instr-generate ' \
-	EXTRALDFLAGS=' -fprofile-instr-generate' \
-	all
-
-clang-profile-use:
-	llvm-profdata merge -output=stockfish.profdata *.profraw
-	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) \
-	EXTRACXXFLAGS='-fprofile-instr-use=stockfish.profdata' \
-	EXTRALDFLAGS='-fprofile-use ' \
-	all
+gcc-profile-prepare:
+	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) gcc-profile-clean
 
 gcc-profile-make:
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) \
-	EXTRACXXFLAGS='-fprofile-generate' \
+	EXTRACFLAGS='-fprofile-generate' \
 	EXTRALDFLAGS='-lgcov' \
 	all
 
 gcc-profile-use:
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) \
-	EXTRACXXFLAGS='-fprofile-use -fno-peel-loops -fno-tracer' \
+	EXTRACFLAGS='-fprofile-use -fno-peel-loops -fno-tracer' \
 	EXTRALDFLAGS='-lgcov' \
 	all
 
+gcc-profile-clean:
+	@rm -rf *.gcda *.gcno bench.txt
+
+icc-profile-prepare:
+	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) icc-profile-clean
+	@mkdir profdir
+
 icc-profile-make:
-	@mkdir -p profdir
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) \
-	EXTRACXXFLAGS='-prof-gen=srcpos -prof_dir ./profdir' \
+	EXTRACFLAGS='-prof-gen=srcpos -prof_dir ./profdir' \
 	all
 
 icc-profile-use:
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) \
-	EXTRACXXFLAGS='-prof_use -prof_dir ./profdir' \
+	EXTRACFLAGS='-prof_use -prof_dir ./profdir' \
 	all
 
+icc-profile-clean:
+	@rm -rf profdir bench.txt
+
 .depend:
-	-@$(CXX) $(DEPENDFLAGS) -MM $(OBJS:.o=.cpp) > $@ 2> /dev/null
+	-@$(CC) $(DEPENDFLAGS) -MM $(OBJS:.o=.c) > $@ 2> /dev/null
 
 -include .depend
 
