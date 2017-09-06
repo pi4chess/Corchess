@@ -75,9 +75,6 @@ namespace {
   int FutilityMoveCounts[2][16]; // [improving][depth]
   int Reductions[2][2][64][64];  // [pv][improving][depth][moveNumber]
 
-  // Threshold used for countermoves based pruning
-  const int CounterMovePruneThreshold = 0;
-
   template <bool PvNode> Depth reduction(bool i, Depth d, int mn) {
     return Reductions[PvNode][i][std::min(d / ONE_PLY, 63)][std::min(mn, 63)] * ONE_PLY;
   }
@@ -220,16 +217,7 @@ void Search::clear() {
   TT.clear();
 
   for (Thread* th : Threads)
-  {
-      th->counterMoves.fill(MOVE_NONE);
-      th->mainHistory.fill(0);
-
-      for (auto& to : th->contHistory)
-          for (auto& h : to)
-              h.fill(0);
-
-      th->contHistory[NO_PIECE][0].fill(CounterMovePruneThreshold - 1);
-  }
+      th->clear();
 
   Threads.main()->callsCnt = 0;
   Threads.main()->previousScore = VALUE_INFINITE;
@@ -977,13 +965,16 @@ moves_loop: // When in check search starts from here
           &&  thisThread->selDepth > depth / ONE_PLY
           && !(depth >= 16 * ONE_PLY && ss->ply <= 3 * ONE_PLY))
       {
-          int mch = std::max(1, moveCount - (ss-1)->moveCount / 16);
-          Depth r = reduction<PvNode>(improving, depth, mch);
+          Depth r = reduction<PvNode>(improving, depth, moveCount);
 
           if (captureOrPromotion)
               r -= r ? ONE_PLY : DEPTH_ZERO;
           else
           {
+              // Decrease reduction if opponent's move count is high
+              if ((ss-1)->moveCount > 15)
+                  r -= ONE_PLY;
+
               // Increase reduction if ttMove is a capture
               if (ttCapture)
                   r += ONE_PLY;
