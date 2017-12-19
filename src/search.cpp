@@ -694,7 +694,7 @@ namespace {
     if (   !PvNode
         &&  eval >= beta
         &&  ss->staticEval >= beta - 36 * depth / ONE_PLY + 225
-		&& (ss->ply >= thisThread->nmp_ply || ss->ply % 2 == thisThread->pair))
+        && (ss->ply >= thisThread->nmp_ply || ss->ply % 2 == thisThread->pair)
         &&  abs(eval) < 2 * VALUE_KNOWN_WIN
         &&  pos.non_pawn_material(~pos.side_to_move())
         && !(depth > 4 * ONE_PLY && (MoveList<LEGAL, KING>(pos).size() < 1 || MoveList<LEGAL>(pos).size() < 6)))
