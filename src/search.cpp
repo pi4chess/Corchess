@@ -67,8 +67,7 @@ namespace {
   const int skipPhase[] = { 0, 1, 0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6, 7 };
 
   // Razoring and futility margin based on depth
-  // razor_margin[0] is unused as long as depth >= ONE_PLY in search
-  const int razor_margin[] = { 0, 570, 603, 554 };
+  const int razor_margin = 600;
   Value futility_margin(Depth d) { return Value(150 * d / ONE_PLY); }
 
   // Futility and reductions lookup tables, initialized at startup
@@ -664,13 +663,13 @@ namespace {
     if (   !PvNode
         &&  depth < 4 * ONE_PLY
         &&  ttMove == MOVE_NONE
-        &&  eval + razor_margin[depth / ONE_PLY] <= alpha
+        &&  eval + razor_margin <= alpha
         &&  abs(eval) < 2 * VALUE_KNOWN_WIN)
     {
         if (depth <= ONE_PLY)
             return qsearch<NonPV, false>(pos, ss, alpha, alpha+1);
 
-        Value ralpha = alpha - razor_margin[depth / ONE_PLY];
+        Value ralpha = alpha - razor_margin;
         Value v = qsearch<NonPV, false>(pos, ss, ralpha, ralpha+1);
         if (v <= ralpha)
             return v;
@@ -1274,7 +1273,6 @@ moves_loop: // When in check search starts from here
 
       // Don't search moves with negative SEE values
       if (  (!InCheck || evasionPrunable)
-          &&  type_of(move) != PROMOTION
           &&  !pos.see_ge(move))
           continue;
 
