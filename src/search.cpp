@@ -110,6 +110,13 @@ namespace {
   void update_quiet_stats(const Position& pos, Stack* ss, Move move, Move* quiets, int quietsCnt, int bonus);
   void update_capture_stats(const Position& pos, Move move, Move* captures, int captureCnt, int bonus);
 
+  inline bool gives_check(const Position& pos, Move move) {
+    Color us = pos.side_to_move();
+    return  type_of(move) == NORMAL && !(pos.blockers_for_king(~us) & pos.pieces(us))
+          ? pos.check_squares(type_of(pos.moved_piece(move))) & to_sq(move)
+          : pos.gives_check(move);
+  }
+
   // perft() is our utility to verify move generation. All the leaf nodes up
   // to the given depth are generated and counted, and the sum is returned.
   template<bool Root>
@@ -509,7 +516,6 @@ namespace {
     Thread* thisThread = pos.this_thread();
     inCheck = pos.checkers();
     moveCount = captureCount = quietCount = ss->moveCount = 0;
-    ss->statScore = 0;
     bestValue = -VALUE_INFINITE;
     maxValue = VALUE_INFINITE;
 
@@ -548,6 +554,13 @@ namespace {
     ss->contHistory = &thisThread->contHistory[NO_PIECE][0];
     (ss+2)->killers[0] = (ss+2)->killers[1] = MOVE_NONE;
     Square prevSq = to_sq((ss-1)->currentMove);
+
+    // Initialize statScore to zero for the grandchildren of the current position.
+    // So statScore is shared between all grandchildren and only the first grandchild
+    // starts with statScore = 0. Later grandchildren start with the last calculated
+    // statScore of the previous grandchild. This influences the reduction rules in
+    // LMR which are based on the statScore of parent position.
+    (ss+2)->statScore = 0;
 
     // Step 4. Transposition table lookup. We don't want the score of a partial
     // search to overwrite a previous full search TT value, so we use a different
@@ -833,10 +846,7 @@ moves_loop: // When in check, search starts from here
       extension = DEPTH_ZERO;
       captureOrPromotion = pos.capture_or_promotion(move);
       movedPiece = pos.moved_piece(move);
-
-      givesCheck =  type_of(move) == NORMAL && !pos.discovered_check_candidates()
-                  ? pos.check_squares(type_of(movedPiece)) & to_sq(move)
-                  : pos.gives_check(move);
+      givesCheck = gives_check(pos, move);
 
       moveCountPruning =   depth < 16 * ONE_PLY
                         && moveCount >= FutilityMoveCounts[improving][depth / ONE_PLY];
@@ -1253,9 +1263,7 @@ moves_loop: // When in check, search starts from here
     {
       assert(is_ok(move));
 
-      givesCheck =  type_of(move) == NORMAL && !pos.discovered_check_candidates()
-                  ? pos.check_squares(type_of(pos.moved_piece(move))) & to_sq(move)
-                  : pos.gives_check(move);
+      givesCheck = gives_check(pos, move);
 
       moveCount++;
 
