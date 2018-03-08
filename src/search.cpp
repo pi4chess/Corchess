@@ -69,7 +69,9 @@ namespace {
   // Razor and futility margins
   const int RazorMargin1 = 590;
   const int RazorMargin2 = 604;
-  Value futility_margin(Depth d) { return Value(150 * d / ONE_PLY); }
+  Value futility_margin(Depth d, bool improving) {
+    return Value((175 - 50 * improving) * d / ONE_PLY);
+  }
 
   // Futility and reductions lookup tables, initialized at startup
   int FutilityMoveCounts[2][16]; // [improving][depth]
@@ -351,10 +353,7 @@ void Thread::search() {
               ct =  Options["Contempt"] * PawnValueEg / 100; // From centipawns
 
               // Adjust contempt based on current bestValue (dynamic contempt)
-              int sign = (bestValue > 0) - (bestValue < 0);
-              ct +=  bestValue >  500 ?  70 :
-                     bestValue < -500 ? -70 :
-                     bestValue / 10 + sign * int(std::round(3.22 * log(1 + abs(bestValue))));
+              ct += int(std::round(48 * atan(float(bestValue) / 128)));
 
               Eval::Contempt = (us == WHITE ?  make_score(ct, ct / 2)
                                             : -make_score(ct, ct / 2));
@@ -680,34 +679,37 @@ namespace {
                   ss->staticEval, TT.generation());
     }
 
+    improving =   ss->staticEval >= (ss-2)->staticEval
+            /* || ss->staticEval == VALUE_NONE Already implicit in the previous condition */
+               ||(ss-2)->staticEval == VALUE_NONE;
+
     if (skipEarlyPruning || !pos.non_pawn_material(pos.side_to_move()))
         goto moves_loop;
 
     // Step 7. Razoring (skipped when in check)
     if (   !PvNode
-        &&  depth <= ONE_PLY
+        &&  depth <= 2 * ONE_PLY
         &&  ttMove == MOVE_NONE
         &&  abs(eval) < 2 * VALUE_KNOWN_WIN)
     {
-        if (eval + RazorMargin1 <= alpha)
+        if (   depth == ONE_PLY
+            && eval + RazorMargin1 <= alpha)
             return qsearch<NonPV, false>(pos, ss, alpha, alpha+1);
-    }
-    else if (   !PvNode
-             &&  depth <= 2 * ONE_PLY
-             &&  ttMove == MOVE_NONE
-             &&  eval + RazorMargin2 <= alpha
-             &&  abs(eval) < 2 * VALUE_KNOWN_WIN)
-    {
-        Value ralpha = alpha - RazorMargin2;
-        Value v = qsearch<NonPV, false>(pos, ss, ralpha, ralpha+1);
-        if (v <= ralpha)
-            return v;
+
+        else if (eval + RazorMargin2 <= alpha)
+        {
+            Value ralpha = alpha - RazorMargin2;
+            Value v = qsearch<NonPV, false>(pos, ss, ralpha, ralpha+1);
+
+            if (v <= ralpha)
+                return v;
+        }
     }
 
     // Step 8. Futility pruning: child node (skipped when in check)
     if (   !PvNode
         &&  depth < 7 * ONE_PLY
-        &&  eval - futility_margin(depth) >= beta
+        &&  eval - futility_margin(depth, improving) >= beta
         &&  eval < VALUE_KNOWN_WIN  // Do not return unproven wins
         &&  pos.non_pawn_material(~pos.side_to_move()))
         return eval;
@@ -772,6 +774,7 @@ namespace {
         Value rbeta = std::min(beta + 200, VALUE_INFINITE);
         MovePicker mp(pos, ttMove, rbeta - ss->staticEval, &thisThread->captureHistory);
         int probCutCount = 0;
+
         while (  (move = mp.next_move()) != MOVE_NONE
                && probCutCount < depth / ONE_PLY - 3)
             if (pos.legal(move))
@@ -797,6 +800,7 @@ namespace {
                     value = -search<NonPV>(pos, ss+1, -rbeta, -rbeta+1, depth - 4 * ONE_PLY, !cutNode, false);
 
                 pos.undo_move(move);
+
                 if (value >= rbeta)
                     return value;
             }
