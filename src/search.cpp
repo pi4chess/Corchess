@@ -693,7 +693,7 @@ namespace {
     if (   !PvNode
         &&  depth <= 2 * ONE_PLY
         &&  ttMove == MOVE_NONE
-        && eval <= alpha - Value(RazorMargin[depth / ONE_PLY]))
+        &&  eval <= alpha - Value(RazorMargin[depth / ONE_PLY])
         &&  abs(eval) < 2 * VALUE_KNOWN_WIN)
     {
         Value ralpha = alpha - Value((depth != ONE_PLY) * RazorMargin[depth / ONE_PLY]);
