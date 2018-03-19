@@ -97,6 +97,8 @@ namespace {
     Move best = MOVE_NONE;
   };
 
+  bool study = Options["Study"];
+
   template <NodeType NT>
   Value search(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, bool cutNode, bool skipEarlyPruning);
 
@@ -688,9 +690,11 @@ namespace {
         goto moves_loop;
 
     // Step 7. Razoring (skipped when in check)
-    if (  !PvNode
-        && depth <= 2 * ONE_PLY
+    if (   !PvNode
+        &&  depth <= 2 * ONE_PLY
+        &&  ttMove == MOVE_NONE
         && eval <= alpha - Value(RazorMargin[depth / ONE_PLY]))
+        &&  abs(eval) < 2 * VALUE_KNOWN_WIN)
     {
         Value ralpha = alpha - Value((depth != ONE_PLY) * RazorMargin[depth / ONE_PLY]);
         Value v = qsearch<NonPV>(pos, ss, ralpha, ralpha+1);
@@ -699,17 +703,21 @@ namespace {
     }
 
     // Step 8. Futility pruning: child node (skipped when in check)
-    if (   !rootNode
+    if (   !PvNode
         &&  depth < 7 * ONE_PLY
         &&  eval - futility_margin(depth, improving) >= beta
-        &&  eval < VALUE_KNOWN_WIN) // Do not return unproven wins
+        &&  eval < VALUE_KNOWN_WIN  // Do not return unproven wins
+        &&  pos.non_pawn_material(~pos.side_to_move()))
         return eval;
 
     // Step 9. Null move search with verification search
     if (   !PvNode
         &&  eval >= beta
         &&  ss->staticEval >= beta - 36 * depth / ONE_PLY + 225
-        && (ss->ply >= thisThread->nmp_ply || ss->ply % 2 != thisThread->nmp_odd))
+        && (ss->ply >= thisThread->nmp_ply || ss->ply % 2 != thisThread->nmp_odd)
+        &&  abs(eval) < 2 * VALUE_KNOWN_WIN
+        &&  pos.non_pawn_material(~pos.side_to_move())
+        && !(depth > 4 * ONE_PLY && (MoveList<LEGAL, KING>(pos).size() < 1 || MoveList<LEGAL>(pos).size() < 6)))
     {
         assert(eval - beta >= 0);
 
@@ -753,7 +761,9 @@ namespace {
     // much above beta, we can (almost) safely prune the previous move.
     if (   !PvNode
         &&  depth >= 5 * ONE_PLY
-        &&  abs(beta) < VALUE_MATE_IN_MAX_PLY)
+        &&  ss->ply % 2 == 1
+        &&  abs(beta) < VALUE_MATE_IN_MAX_PLY
+        &&  abs(eval) < 2 * VALUE_KNOWN_WIN)
     {
         assert(is_ok((ss-1)->currentMove));
 
@@ -881,7 +891,7 @@ moves_loop: // When in check, search starts from here
       newDepth = depth - ONE_PLY + extension;
 
       // Step 14. Pruning at shallow depth
-      if (  !rootNode
+      if (  !PvNode
           && pos.non_pawn_material(pos.side_to_move())
           && bestValue > VALUE_MATED_IN_MAX_PLY)
       {
@@ -946,7 +956,9 @@ moves_loop: // When in check, search starts from here
       // re-searched at full depth.
       if (    depth >= 3 * ONE_PLY
           &&  moveCount > 1
-          && (!captureOrPromotion || moveCountPruning))
+          && (!captureOrPromotion || moveCountPruning)
+          &&  thisThread->selDepth > depth / ONE_PLY
+          && !(depth >= 16 * ONE_PLY && ss->ply <= 3 * ONE_PLY))
       {
           Depth r = reduction<PvNode>(improving, depth, moveCount);
 
@@ -993,6 +1005,9 @@ moves_loop: // When in check, search starts from here
               // Decrease/increase reduction for moves with a good/bad history
               r = std::max(DEPTH_ZERO, (r / ONE_PLY - ss->statScore / 20000) * ONE_PLY);
           }
+
+          if (study && ss->ply < depth / 2 - ONE_PLY)
+              r = DEPTH_ZERO;
 
           Depth d = std::max(newDepth - r, ONE_PLY);
 
@@ -1626,18 +1641,8 @@ void Tablebases::filter_root_moves(Position& pos, Search::RootMoves& rootMoves) 
     // contains only moves that preserve the draw or the win.
     RootInTB = root_probe(pos, rootMoves, TB::Score);
 
-    if (RootInTB)
-        Cardinality = 0; // Do not probe tablebases during the search
-
-    else // If DTZ tables are missing, use WDL tables as a fallback
-    {
-        // Filter out moves that do not preserve the draw or the win.
+    if (!RootInTB) // If DTZ tables are missing, use WDL tables as a fallback
         RootInTB = root_probe_wdl(pos, rootMoves, TB::Score);
-
-        // Only probe during search if winning
-        if (RootInTB && TB::Score <= VALUE_DRAW)
-            Cardinality = 0;
-    }
 
     if (RootInTB && !UseRule50)
         TB::Score =  TB::Score > VALUE_DRAW ?  VALUE_MATE - MAX_PLY - 1
