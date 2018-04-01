@@ -72,6 +72,16 @@ namespace {
     return Value((175 - 50 * improving) * d / ONE_PLY);
   }
 
+  // Margin for pruning capturing moves: almost linear in depth
+  constexpr int CapturePruneMargin[] = { 0,
+                                         1 * PawnValueEg * 1055 / 1000,
+                                         2 * PawnValueEg * 1042 / 1000,
+                                         3 * PawnValueEg * 963  / 1000,
+                                         4 * PawnValueEg * 1038 / 1000,
+                                         5 * PawnValueEg * 950  / 1000,
+                                         6 * PawnValueEg * 930  / 1000
+                                       };
+
   // Futility and reductions lookup tables, initialized at startup
   int FutilityMoveCounts[2][16]; // [improving][depth]
   int Reductions[2][2][64][64];  // [pv][improving][depth][moveNumber]
@@ -711,7 +721,7 @@ namespace {
         &&  pos.non_pawn_material(~pos.side_to_move()))
         return eval;
 
-    // Step 9. Null move search with verification search
+    // Step 9. Null move search with verification search (~40 Elo)
     if (   !PvNode
         &&  eval >= beta
         &&  ss->staticEval >= beta - 36 * depth / ONE_PLY + 225
@@ -757,7 +767,7 @@ namespace {
         }
     }
 
-    // Step 10. ProbCut (skipped when in check)
+    // Step 10. ProbCut (skipped when in check, ~10 Elo)
     // If we have a good enough capture and a reduced search returns a value
     // much above beta, we can (almost) safely prune the previous move.
     if (   !PvNode
@@ -799,7 +809,7 @@ namespace {
             }
     }
 
-    // Step 11. Internal iterative deepening (skipped when in check)
+    // Step 11. Internal iterative deepening (skipped when in check, ~2 Elo)
     if (    depth >= 6 * ONE_PLY
         && !ttMove
         && (PvNode || ss->staticEval + 128 >= beta))
@@ -864,9 +874,9 @@ moves_loop: // When in check, search starts from here
       moveCountPruning =   depth < 16 * ONE_PLY
                         && moveCount >= FutilityMoveCounts[improving][depth / ONE_PLY];
 
-      // Step 13. Extensions
+      // Step 13. Extensions (~70 Elo)
 
-      // Singular extension search. If all moves but one fail low on a search
+      // Singular extension search (~60 Elo). If all moves but one fail low on a search
       // of (alpha-s, beta-s), and just one fails high on (alpha, beta), then
       // that move is singular and should be extended. To verify this we do a
       // reduced search on on all the other moves but the ttMove and if the
@@ -883,7 +893,7 @@ moves_loop: // When in check, search starts from here
           if (value < rBeta)
               extension = ONE_PLY;
       }
-      else if (    givesCheck // Check extension
+      else if (    givesCheck // Check extension (~2 Elo)
                && !moveCountPruning
                &&  pos.see_ge(move))
           extension = ONE_PLY;
@@ -900,7 +910,7 @@ moves_loop: // When in check, search starts from here
               && !givesCheck
               && (!pos.advanced_pawn_push(move) || pos.non_pawn_material() >= Value(5000)))
           {
-              // Move count based pruning
+              // Move count based pruning (~30 Elo)
               if (moveCountPruning)
               {
                   skipQuiets = true;
@@ -910,26 +920,26 @@ moves_loop: // When in check, search starts from here
               // Reduced depth of the next LMR search
               int lmrDepth = std::max(newDepth - reduction<PvNode>(improving, depth, moveCount), DEPTH_ZERO) / ONE_PLY;
 
-              // Countermoves based pruning
+              // Countermoves based pruning (~20 Elo)
               if (   lmrDepth < 3
                   && (*contHist[0])[movedPiece][to_sq(move)] < CounterMovePruneThreshold
                   && (*contHist[1])[movedPiece][to_sq(move)] < CounterMovePruneThreshold)
                   continue;
 
-              // Futility pruning: parent node
+              // Futility pruning: parent node (~2 Elo)
               if (   lmrDepth < 7
                   && !inCheck
                   && ss->staticEval + 256 + 200 * lmrDepth <= alpha)
                   continue;
 
-              // Prune moves with negative SEE
+              // Prune moves with negative SEE (~10 Elo)
               if (   lmrDepth < 8
                   && !pos.see_ge(move, Value(-35 * lmrDepth * lmrDepth)))
                   continue;
           }
-          else if (    depth < 7 * ONE_PLY
+          else if (    depth < 7 * ONE_PLY // (~20 Elo)
                    && !extension
-                   && !pos.see_ge(move, -PawnValueEg * (depth / ONE_PLY)))
+                   && !pos.see_ge(move, -Value(CapturePruneMargin[depth / ONE_PLY])))
                   continue;
       }
 
