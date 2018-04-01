@@ -215,7 +215,7 @@ constexpr Value WDL_to_value[] = {
     VALUE_DRAW - 2,
     VALUE_DRAW,
     VALUE_DRAW + 2,
-    VALUE_MATE - MAX_PLY - 1
+    VALUE_MATE_IN_MAX_PLY - MAX_PLY
 };
 
 const std::string PieceToChar = " PNBRQK  pnbrqk";
