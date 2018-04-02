@@ -65,10 +65,12 @@ struct MoveList {
 
     if (P != ALL_PIECES)
         for (ExtMove* cur = moveList; cur != last; )
+        {
             if (type_of(pos.piece_on(from_sq(cur->move))) != P)
                 *cur = (--last)->move;
             else
                 ++cur;
+        }
   }
   const ExtMove* begin() const { return moveList; }
   const ExtMove* end() const { return last; }
