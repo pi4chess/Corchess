@@ -25,7 +25,7 @@
 ifeq ($(COMP),mingw)
 EXE = stockfish.exe
 else
-EXE = stockfish
+EXE = matefinder
 endif
 
 ### Installation dir definitions
