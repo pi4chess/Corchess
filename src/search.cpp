@@ -756,7 +756,7 @@ namespace {
         &&  ss->staticEval >= beta - 36 * depth / ONE_PLY + 225
         && !excludedMove
         &&  pos.non_pawn_material(us)
-        && (ss->ply > thisThread->nmp_min_ply || us != thisThread->nmp_color))
+        && (ss->ply > thisThread->nmp_min_ply || us != thisThread->nmp_color)
         &&  abs(eval) < 2 * VALUE_KNOWN_WIN
         &&  pos.non_pawn_material(~us)
         && !(depth > 4 * ONE_PLY && (MoveList<LEGAL, KING>(pos).size() < 1 || MoveList<LEGAL>(pos).size() < 6)))
