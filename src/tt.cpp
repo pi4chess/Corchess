@@ -30,7 +30,7 @@
 TranspositionTable TT; // Our global transposition table
 
 /// TTEntry::save saves a TTEntry
-void TTEntry::save(Key k, Value v, Bound b, Depth d, Move m, Value ev, uint8_t g) {
+void TTEntry::save(Key k, Value v, Bound b, Depth d, Move m, Value ev) {
 
     assert(d / ONE_PLY * ONE_PLY == d);
 

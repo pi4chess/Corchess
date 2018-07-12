@@ -42,7 +42,7 @@ struct TTEntry {
   Depth depth() const { return (Depth)(depth8 * int(ONE_PLY)); }
   Bound bound() const { return (Bound)(genBound8 & 0x3); }
 
-  void save(Key k, Value v, Bound b, Depth d, Move m, Value ev, uint8_t g); 
+  void save(Key k, Value v, Bound b, Depth d, Move m, Value ev); 
   
   private:
   friend class TranspositionTable;
