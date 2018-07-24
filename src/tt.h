@@ -41,12 +41,13 @@ struct TTEntry {
   Value eval()  const { return (Value)eval16; }
   Depth depth() const { return (Depth)(depth8 * int(ONE_PLY)); }
   Bound bound() const { return (Bound)(genBound8 & 0x3); }
-  void save(Key k, Value v, Bound b, Depth d, Move m, Value ev);
 
-private:
+  void save(Key k, Value v, Bound b, Depth d, Move m, Value ev); 
+  
+  private:
   friend class TranspositionTable;
 
-  uint16_t key16;
+  uint64_t key;
   uint16_t move16;
   int16_t  value16;
   int16_t  eval16;
@@ -65,11 +66,10 @@ private:
 class TranspositionTable {
 
   static constexpr int CacheLineSize = 64;
-  static constexpr int ClusterSize = 3;
+  static constexpr int ClusterSize = 2;
 
   struct Cluster {
     TTEntry entry[ClusterSize];
-    char padding[2]; // Align to a divisor of the cache line size
   };
 
   static_assert(CacheLineSize % sizeof(Cluster) == 0, "Cluster size incorrect");

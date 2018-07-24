@@ -23,9 +23,9 @@
 
 ### Executable name
 ifeq ($(COMP),mingw)
-EXE = stockfish.exe
+EXE = matefinder.exe
 else
-EXE = stockfish
+EXE = matefinder
 endif
 
 ### Installation dir definitions
