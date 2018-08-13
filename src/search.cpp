@@ -66,7 +66,7 @@ namespace {
   constexpr int SkipPhase[] = { 0, 1, 0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6, 7 };
 
   // Razor and futility margins
-  constexpr int RazorMargin[] = {0, 590, 604};
+  constexpr int RazorMargin = 600;
   Value futility_margin(Depth d, bool improving) {
     return Value((175 - 50 * improving) * d / ONE_PLY);
   }
@@ -82,7 +82,7 @@ namespace {
   // History and stats update bonus, based on depth
   int stat_bonus(Depth depth) {
     int d = depth / ONE_PLY;
-    return d > 17 ? 0 : 33 * d * d + 66 * d - 66;
+    return d > 17 ? 0 : 29 * d * d + 138 * d - 134;
   }
 
   // Skill structure is used to implement strength limit
@@ -260,7 +260,7 @@ void MainThread::search() {
 
       // Vote according to score and depth
       for (Thread* th : Threads)
-          votes[th->rootMoves[0].pv[0]] +=  int(th->rootMoves[0].score - minScore)  
+          votes[th->rootMoves[0].pv[0]] +=  int(th->rootMoves[0].score - minScore)
                                           + int(th->completedDepth);
 
       // Select best thread
@@ -731,18 +731,12 @@ namespace {
                   ss->staticEval);
     }
 
-    // Step 7. Razoring (skipped when in check)
-    if (   !PvNode
-        &&  depth < 3 * ONE_PLY
+    // Step 7. Razoring
+    if (   depth < 2 * ONE_PLY
         &&  ttMove == MOVE_NONE
-        &&  eval <= alpha - RazorMargin[depth / ONE_PLY]
+        &&  eval <= alpha - RazorMargin
         &&  abs(eval) < 2 * VALUE_KNOWN_WIN)
-    {
-        Value ralpha = alpha - (depth >= 2 * ONE_PLY) * RazorMargin[depth / ONE_PLY];
-        Value v = qsearch<NonPV>(pos, ss, ralpha, ralpha+1);
-        if (depth < 2 * ONE_PLY || v <= ralpha)
-            return v;
-    }
+        return qsearch<NT>(pos, ss, alpha, beta);
 
     improving =   ss->staticEval >= (ss-2)->staticEval
                || (ss-2)->staticEval == VALUE_NONE;
@@ -758,7 +752,7 @@ namespace {
     // Step 9. Null move search with verification search (~40 Elo)
     if (   !PvNode
         && (ss-1)->currentMove != MOVE_NULL
-        && (ss-1)->statScore < 22500
+        && (ss-1)->statScore < 23200
         &&  eval >= beta
         &&  ss->staticEval >= beta - 36 * depth / ONE_PLY + 225
         && !excludedMove
