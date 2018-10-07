@@ -32,9 +32,9 @@ namespace {
 
   enum TimeType { OptimumTime, MaxTime };
 
-  constexpr int MoveHorizon   = 42;   // Plan time management at most this many moves ahead
-  constexpr double MaxRatio   = 7.43;  // When in trouble, we can step over reserved time with this ratio
-  constexpr double StealRatio = 0.387; // However we must not steal time from remaining moves over this ratio
+  constexpr int MoveHorizon   = 45;   // Plan time management at most this many moves ahead
+  constexpr double MaxRatio   = 7.4;  // When in trouble, we can step over reserved time with this ratio
+  constexpr double StealRatio = 0.38; // However we must not steal time from remaining moves over this ratio
 
 
   // move_importance() is a skew-logistic function based on naive statistical
@@ -44,9 +44,9 @@ namespace {
 
   double move_importance(int ply) {
 
-    constexpr double XScale = 6.56;
-    constexpr double XShift = 65.7;
-    constexpr double Skew   = 0.179;
+    constexpr double XScale = 6.5;
+    constexpr double XShift = 65.0;
+    constexpr double Skew   = 0.175;
 
     return pow((1 + exp((ply - XShift) / XScale)), -Skew) + DBL_MIN; // Ensure non-zero
   }
