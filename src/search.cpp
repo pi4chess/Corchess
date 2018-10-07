@@ -480,7 +480,7 @@ void Thread::search() {
               const int F[] = { failedLow,
                                 bestValue - mainThread->previousScore };
 
-              int improvingFactor = std::max(246, std::min(832, 306 + 119 * F[0] - 6 * F[1]));
+              int improvingFactor = std::max(246, std::min(832, 252 + 118 * F[0] - 6 * F[1]));
 
               // If the bestMove is stable over several iterations, reduce time accordingly
               timeReduction = 1.0;
