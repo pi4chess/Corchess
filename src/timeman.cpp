@@ -28,13 +28,16 @@
 
 TimeManagement Time; // Our global time management object
 
+int ttuned[7] = {50, 73, 34, 685, 645, 171, 40};
+TUNE(ttuned);
+
 namespace {
 
   enum TimeType { OptimumTime, MaxTime };
 
-  constexpr int MoveHorizon   = 50;   // Plan time management at most this many moves ahead
-  constexpr double MaxRatio   = 7.3;  // When in trouble, we can step over reserved time with this ratio
-  constexpr double StealRatio = 0.34; // However we must not steal time from remaining moves over this ratio
+  int MoveHorizon   = ttuned[0];   // Plan time management at most this many moves ahead
+  double MaxRatio   = ttuned[1]/10.0;  // When in trouble, we can step over reserved time with this ratio
+  double StealRatio = ttuned[2]/100.0; // However we must not steal time from remaining moves over this ratio
 
 
   // move_importance() is a skew-logistic function based on naive statistical
@@ -44,9 +47,9 @@ namespace {
 
   double move_importance(int ply) {
 
-    constexpr double XScale = 6.85;
-    constexpr double XShift = 64.5;
-    constexpr double Skew   = 0.171;
+    double XScale = ttuned[3]/100.0;
+    double XShift = ttuned[4]/10.0;
+    double Skew   = ttuned[5]/1000.0;
 
     return pow((1 + exp((ply - XShift) / XScale)), -Skew) + DBL_MIN; // Ensure non-zero
   }
@@ -54,8 +57,8 @@ namespace {
   template<TimeType T>
   TimePoint remaining(TimePoint myTime, int movesToGo, int ply, TimePoint slowMover) {
 
-    constexpr double TMaxRatio   = (T == OptimumTime ? 1.0 : MaxRatio);
-    constexpr double TStealRatio = (T == OptimumTime ? 0.0 : StealRatio);
+    double TMaxRatio   = (T == OptimumTime ? 1.0 : MaxRatio);
+    double TStealRatio = (T == OptimumTime ? 0.0 : StealRatio);
 
     double moveImportance = (move_importance(ply) * slowMover) / 100.0;
     double otherMovesImportance = 0.0;
@@ -117,7 +120,7 @@ void TimeManagement::init(Search::LimitsType& limits, Color us, int ply) {
       // Calculate thinking time for hypothetical "moves to go"-value
       hypMyTime =  limits.time[us]
                  + limits.inc[us] * (hypMTG - 1)
-                 - moveOverhead * (2 + std::min(hypMTG, 40));
+                 - moveOverhead * (2 + std::min(hypMTG, ttuned[6]));
 
       hypMyTime = std::max(hypMyTime, TimePoint(0));
 

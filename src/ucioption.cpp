@@ -230,7 +230,7 @@ static void make_option(const string& n, int v, const SetRange& r) {
   std::cout << n << ","
             << v << ","
             << r(v).first << "," << r(v).second << ","
-            << (r(v).second - r(v).first) / 20.0 << ","
+            << (r(v).second - r(v).first) / 13.3 << ","
             << "0.0020"
             << std::endl;
 }
