@@ -450,7 +450,7 @@ void Thread::search() {
               {
                   beta = std::min(bestValue + delta, VALUE_INFINITE);
                   if (mainThread)
-                	  ++failedHighCnt;
+                      ++failedHighCnt;
               }
               else
                   break;
@@ -767,7 +767,7 @@ namespace {
     improving =   ss->staticEval >= (ss-2)->staticEval
                || (ss-2)->staticEval == VALUE_NONE;
 
-    // Step 8. Futility pruning: child node (skipped when in check)
+    // Step 8. Futility pruning: child node (~30 Elo)
     if (   !PvNode
         &&  depth < 7 * ONE_PLY
         &&  eval - futility_margin(depth, improving) >= beta
