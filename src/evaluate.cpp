@@ -213,7 +213,7 @@ namespace {
     // kingRing[color] are the squares adjacent to the king, plus (only for a
     // king on its first rank) the squares two ranks in front. For instance,
     // if black's king is on g8, kingRing[BLACK] is f8, h8, f7, g7, h7, f6, g6
-    // and h6. It is set to 0 when king safety evaluation is skipped.
+    // and h6.
     Bitboard kingRing[COLOR_NB];
 
     // kingAttackersCount[color] is the number of pieces of the given color
@@ -505,7 +505,7 @@ namespace {
     Score score = SCORE_ZERO;
 
     // Non-pawn enemies
-    nonPawnEnemies = pos.pieces(Them) & ~pos.pieces(Them, PAWN);
+    nonPawnEnemies = pos.pieces(Them) & ~pos.pieces(PAWN);
 
     // Squares strongly protected by the enemy, either because they defend the
     // square with a pawn, or because they defend the square twice and we don't.
@@ -701,7 +701,8 @@ namespace {
     if (pos.non_pawn_material() < SpaceThreshold)
         return SCORE_ZERO;
 
-    constexpr Color Them = (Us == WHITE ? BLACK : WHITE);
+    constexpr Color Them     = (Us == WHITE ? BLACK : WHITE);
+    constexpr Direction Down = (Us == WHITE ? SOUTH : NORTH);
     constexpr Bitboard SpaceMask =
       Us == WHITE ? CenterFiles & (Rank2BB | Rank3BB | Rank4BB)
                   : CenterFiles & (Rank7BB | Rank6BB | Rank5BB);
@@ -713,11 +714,12 @@ namespace {
 
     // Find all squares which are at most three squares behind some friendly pawn
     Bitboard behind = pos.pieces(Us, PAWN);
-    behind |= (Us == WHITE ? behind >>  8 : behind <<  8);
-    behind |= (Us == WHITE ? behind >> 16 : behind << 16);
+    behind |= shift<Down>(behind);
+    behind |= shift<Down>(shift<Down>(behind));
 
     int bonus = popcount(safe) + popcount(behind & safe);
-    int weight = pos.count<ALL_PIECES>(Us) - 2 * pe->open_files();
+    int weight =  pos.count<ALL_PIECES>(Us)
+                - 2 * popcount(pe->semiopenFiles[WHITE] & pe->semiopenFiles[BLACK]);
 
     Score score = make_score(bonus * weight * weight / 16, 0);
 
@@ -742,12 +744,12 @@ namespace {
                             && (pos.pieces(PAWN) & KingSide);
 
     // Compute the initiative bonus for the attacking side
-    int complexity =   8 * pe->pawn_asymmetry()
-                    + 12 * pos.count<PAWN>()
-                    + 12 * outflanking
-                    + 16 * pawnsOnBothFlanks
-                    + 48 * !pos.non_pawn_material()
-                    -118 ;
+    int complexity =   9 * pe->pawn_asymmetry()
+                    + 11 * pos.count<PAWN>()
+                    +  9 * outflanking
+                    + 18 * pawnsOnBothFlanks
+                    + 49 * !pos.non_pawn_material()
+                    -121 ;
 
     // Now apply the bonus: note that we find the attacking side by extracting
     // the sign of the endgame value, and that we carefully cap the bonus so
