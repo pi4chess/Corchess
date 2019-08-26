@@ -64,7 +64,7 @@ namespace {
   // Razor and futility margins
   constexpr int RazorMargin = 661;
   Value futility_margin(Depth d, bool improving) {
-    return Value((168 - 51 * improving) * d / ONE_PLY);
+    return Value(198 * (d / ONE_PLY - improving));
   }
 
   // Reductions lookup table, initialized at startup
@@ -474,7 +474,10 @@ void Thread::search() {
                   ++failedHighCnt;
               }
               else
+              {
+                  ++rootMoves[pvIdx].bestMoveCount;
                   break;
+              }
 
               delta += delta / 4 + 5;
 
@@ -804,7 +807,8 @@ namespace {
         && (ss-1)->currentMove != MOVE_NULL
         && (ss-1)->statScore < 22661
         &&  eval >= beta
-        &&  ss->staticEval >= beta - 33 * depth / ONE_PLY + 299
+        &&  eval >= ss->staticEval
+        &&  ss->staticEval >= beta - 33 * depth / ONE_PLY + 299 - improving * 30
         && !excludedMove
         &&  pos.non_pawn_material(us)
         && (ss->ply >= thisThread->nmpMinPly || us != thisThread->nmpColor)
@@ -1081,7 +1085,8 @@ moves_loop: // When in check, search starts from here
       // Step 16. Reduced depth search (LMR). If the move fails high it will be
       // re-searched at full depth.
       if (    depth >= 3 * ONE_PLY
-          &&  moveCount > 1 + 3 * rootNode
+          &&  moveCount > 1 + 2 * rootNode
+          && (!rootNode || thisThread->best_move_count(move) == 0)
           && (!captureOrPromotion || moveCountPruning)
           &&  thisThread->selDepth > depth / ONE_PLY
           && !(depth >= 16 * ONE_PLY && ss->ply <= 3 * ONE_PLY))
