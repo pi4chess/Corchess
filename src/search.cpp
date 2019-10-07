@@ -143,6 +143,8 @@ namespace {
     bool otherThread, owning;
   };
 
+  bool study = Options["Study"];
+
   template <NodeType NT>
   Value search(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, bool cutNode);
 
@@ -783,10 +785,12 @@ namespace {
         tte->save(posKey, VALUE_NONE, ttPv, BOUND_NONE, DEPTH_NONE, MOVE_NONE, eval);
     }
 
-    // Step 7. Razoring (~2 Elo)
+    // Step 7. Razoring
     if (   !rootNode // The required rootNode PV handling is not available in qsearch
         &&  depth < 2
-        &&  eval <= alpha - RazorMargin)
+        &&  ttMove == MOVE_NONE
+        &&  eval <= alpha - RazorMargin
+        &&  abs(eval) < 2 * VALUE_KNOWN_WIN)
         return qsearch<NT>(pos, ss, alpha, beta);
 
     improving =   ss->staticEval >= (ss-2)->staticEval
@@ -796,7 +800,8 @@ namespace {
     if (   !PvNode
         &&  depth < 7
         &&  eval - futility_margin(depth, improving) >= beta
-        &&  eval < VALUE_KNOWN_WIN) // Do not return unproven wins
+        &&  eval < VALUE_KNOWN_WIN  // Do not return unproven wins
+        &&  pos.non_pawn_material(~pos.side_to_move()))
         return eval;
 
     // Step 9. Null move search with verification search (~40 Elo)
@@ -808,7 +813,10 @@ namespace {
         &&  ss->staticEval >= beta - 33 * depth + 299 - improving * 30
         && !excludedMove
         &&  pos.non_pawn_material(us)
-        && (ss->ply >= thisThread->nmpMinPly || us != thisThread->nmpColor))
+        && (ss->ply >= thisThread->nmpMinPly || us != thisThread->nmpColor)
+        &&  abs(eval) < 2 * VALUE_KNOWN_WIN
+        &&  pos.non_pawn_material(~us)
+        && !(depth > 4 * ONE_PLY && (MoveList<LEGAL, KING>(pos).size() < 1 || MoveList<LEGAL>(pos).size() < 6)))
     {
         assert(eval - beta >= 0);
 
@@ -854,7 +862,9 @@ namespace {
     // much above beta, we can (almost) safely prune the previous move.
     if (   !PvNode
         &&  depth >= 5
-        &&  abs(beta) < VALUE_MATE_IN_MAX_PLY)
+        &&  ss->ply % 2 == 1
+        &&  abs(beta) < VALUE_MATE_IN_MAX_PLY
+        &&  abs(eval) < 2 * VALUE_KNOWN_WIN)
     {
         Value raisedBeta = std::min(beta + 191 - 46 * improving, VALUE_INFINITE);
         MovePicker mp(pos, ttMove, raisedBeta - ss->staticEval, &thisThread->captureHistory);
@@ -1016,8 +1026,8 @@ moves_loop: // When in check, search starts from here
       // Calculate new depth for this move
       newDepth = depth - 1 + extension;
 
-      // Step 14. Pruning at shallow depth (~170 Elo)
-      if (  !rootNode
+      // Step 14. Pruning at shallow depth
+      if (  !PvNode
           && pos.non_pawn_material(us)
           && bestValue > VALUE_MATED_IN_MAX_PLY)
       {
@@ -1078,10 +1088,9 @@ moves_loop: // When in check, search starts from here
       if (    depth >= 3
           &&  moveCount > 1 + 2 * rootNode
           && (!rootNode || thisThread->best_move_count(move) == 0)
-          && (  !captureOrPromotion
-              || moveCountPruning
-              || ss->staticEval + PieceValue[EG][pos.captured_piece()] <= alpha
-              || cutNode))
+          && (!captureOrPromotion || moveCountPruning)
+          &&  thisThread->selDepth > depth / ONE_PLY
+          && !(depth >= 16 * ONE_PLY && ss->ply <= 3 * ONE_PLY))
       {
           Depth r = reduction(improving, depth, moveCount);
 
@@ -1140,6 +1149,9 @@ moves_loop: // When in check, search starts from here
               // Decrease/increase reduction for moves with a good/bad history (~30 Elo)
               r -= ss->statScore / 16384;
           }
+
+          if (study && ss->ply < depth / 2 - 1)
+              r = DEPTH_ZERO;
 
           Depth d = clamp(newDepth - r, 1, newDepth);
 
