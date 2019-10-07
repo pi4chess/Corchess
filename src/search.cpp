@@ -1151,7 +1151,7 @@ moves_loop: // When in check, search starts from here
           }
 
           if (study && ss->ply < depth / 2 - 1)
-              r = DEPTH_ZERO;
+              r = 0;
 
           Depth d = clamp(newDepth - r, 1, newDepth);
 
@@ -1795,7 +1795,7 @@ void Tablebases::rank_root_moves(Position& pos, Search::RootMoves& rootMoves) {
     bool dtz_available = true;
 
     // Tables with fewer pieces than SyzygyProbeLimit are searched with
-    // ProbeDepth == DEPTH_ZERO
+    // ProbeDepth == 0
     if (Cardinality > MaxCardinality)
     {
         Cardinality = MaxCardinality;
