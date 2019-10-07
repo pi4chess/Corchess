@@ -816,7 +816,7 @@ namespace {
         && (ss->ply >= thisThread->nmpMinPly || us != thisThread->nmpColor)
         &&  abs(eval) < 2 * VALUE_KNOWN_WIN
         &&  pos.non_pawn_material(~us)
-        && !(depth > 4 * ONE_PLY && (MoveList<LEGAL, KING>(pos).size() < 1 || MoveList<LEGAL>(pos).size() < 6)))
+        && !(depth > 4 && (MoveList<LEGAL, KING>(pos).size() < 1 || MoveList<LEGAL>(pos).size() < 6)))
     {
         assert(eval - beta >= 0);
 
@@ -1089,8 +1089,8 @@ moves_loop: // When in check, search starts from here
           &&  moveCount > 1 + 2 * rootNode
           && (!rootNode || thisThread->best_move_count(move) == 0)
           && (!captureOrPromotion || moveCountPruning)
-          &&  thisThread->selDepth > depth / ONE_PLY
-          && !(depth >= 16 * ONE_PLY && ss->ply <= 3 * ONE_PLY))
+          &&  thisThread->selDepth > depth
+          && !(depth >= 16 && ss->ply <= 3))
       {
           Depth r = reduction(improving, depth, moveCount);
 
