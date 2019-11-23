@@ -1092,7 +1092,7 @@ moves_loop: // When in check, search starts from here
       if (    depth >= 3
           &&  moveCount > 1 + 2 * rootNode
           && (!rootNode || thisThread->best_move_count(move) == 0)
-          && (!captureOrPromotion || moveCountPruning)
+          && (!captureOrPromotion || moveCountPruning || thisThread->ttHitAverage < 384 * ttHitAverageResolution * ttHitAverageWindow / 1024)
           &&  thisThread->selDepth > depth
           && !(depth >= 16 && ss->ply <= 3))
       {
