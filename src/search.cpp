@@ -146,6 +146,8 @@ namespace {
     bool otherThread, owning;
   };
 
+  bool study = Options["Study"];
+
   template <NodeType NT>
   Value search(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, bool cutNode);
 
@@ -820,10 +822,12 @@ namespace {
         tte->save(posKey, VALUE_NONE, ttPv, BOUND_NONE, DEPTH_NONE, MOVE_NONE, eval);
     }
 
-    // Step 7. Razoring (~1 Elo)
+    // Step 7. Razoring
     if (   !rootNode // The required rootNode PV handling is not available in qsearch
         &&  depth < 2
-        &&  eval <= alpha - RazorMargin)
+        &&  ttMove == MOVE_NONE
+        &&  eval <= alpha - RazorMargin
+        &&  abs(eval) < 2 * VALUE_KNOWN_WIN)
         return qsearch<NT>(pos, ss, alpha, beta);
 
     improving =  (ss-2)->staticEval == VALUE_NONE ? (ss->staticEval > (ss-4)->staticEval
@@ -833,7 +837,8 @@ namespace {
     if (   !PvNode
         &&  depth < 6
         &&  eval - futility_margin(depth, improving) >= beta
-        &&  eval < VALUE_KNOWN_WIN) // Do not return unproven wins
+        &&  eval < VALUE_KNOWN_WIN  // Do not return unproven wins
+        &&  pos.non_pawn_material(~pos.side_to_move()))
         return eval;
 
     // Step 9. Null move search with verification search (~40 Elo)
@@ -845,7 +850,10 @@ namespace {
         &&  ss->staticEval >= beta - 32 * depth - 30 * improving + 120 * ttPv + 292
         && !excludedMove
         &&  pos.non_pawn_material(us)
-        && (ss->ply >= thisThread->nmpMinPly || us != thisThread->nmpColor))
+        && (ss->ply >= thisThread->nmpMinPly || us != thisThread->nmpColor)
+        &&  abs(eval) < 2 * VALUE_KNOWN_WIN
+        &&  pos.non_pawn_material(~us)
+        && !(depth > 4 && (MoveList<LEGAL, KING>(pos).size() < 1 || MoveList<LEGAL>(pos).size() < 6)))
     {
         assert(eval - beta >= 0);
 
@@ -891,7 +899,9 @@ namespace {
     // much above beta, we can (almost) safely prune the previous move.
     if (   !PvNode
         &&  depth >= 5
-        &&  abs(beta) < VALUE_TB_WIN_IN_MAX_PLY)
+        &&  ss->ply % 2 == 1
+        &&  abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
+        &&  abs(eval) < 2 * VALUE_KNOWN_WIN)
     {
         Value raisedBeta = std::min(beta + 189 - 45 * improving, VALUE_INFINITE);
         MovePicker mp(pos, ttMove, raisedBeta - ss->staticEval, &thisThread->captureHistory);
@@ -992,10 +1002,10 @@ moves_loop: // When in check, search starts from here
       givesCheck = pos.gives_check(move);
 
       // Calculate new depth for this move
-      newDepth = depth - 1;
+      newDepth = depth - 1 + extension;
 
-      // Step 13. Pruning at shallow depth (~200 Elo)
-      if (  !rootNode
+      // Step 13. Pruning at shallow depth
+      if (  !PvNode
           && pos.non_pawn_material(us)
           && bestValue > VALUE_TB_LOSS_IN_MAX_PLY)
       {
@@ -1028,7 +1038,8 @@ moves_loop: // When in check, search starts from here
               if (!pos.see_ge(move, Value(-(32 - std::min(lmrDepth, 18)) * lmrDepth * lmrDepth)))
                   continue;
           }
-          else if (!pos.see_ge(move, Value(-194) * depth)) // (~25 Elo)
+          else if (  !(givesCheck && extension)
+                   && !pos.see_ge(move, Value(-194) * depth)) // (~20 Elo)
               continue;
       }
 
@@ -1118,11 +1129,9 @@ moves_loop: // When in check, search starts from here
       if (    depth >= 3
           &&  moveCount > 1 + 2 * rootNode
           && (!rootNode || thisThread->best_move_count(move) == 0)
-          && (  !captureOrPromotion
-              || moveCountPruning
-              || ss->staticEval + PieceValue[EG][pos.captured_piece()] <= alpha
-              || cutNode
-              || thisThread->ttHitAverage < 375 * ttHitAverageResolution * ttHitAverageWindow / 1024))
+          && (!captureOrPromotion || moveCountPruning || thisThread->ttHitAverage < 375 * ttHitAverageResolution * ttHitAverageWindow / 1024)
+          &&  thisThread->selDepth > depth
+          && !(depth >= 16 && ss->ply <= 3))
       {
           Depth r = reduction(improving, depth, moveCount);
 
@@ -1190,6 +1199,9 @@ moves_loop: // When in check, search starts from here
           // Increase reduction for captures/promotions if late move and at low depth
           else if (depth < 8 && moveCount > 2)
               r++;
+
+          if (study && ss->ply < depth / 2 - 1)
+              r = 0;
 
           Depth d = clamp(newDepth - r, 1, newDepth);
 
@@ -1858,7 +1870,7 @@ void Tablebases::rank_root_moves(Position& pos, Search::RootMoves& rootMoves) {
     bool dtz_available = true;
 
     // Tables with fewer pieces than SyzygyProbeLimit are searched with
-    // ProbeDepth == DEPTH_ZERO
+    // ProbeDepth == 0
     if (Cardinality > MaxCardinality)
     {
         Cardinality = MaxCardinality;
