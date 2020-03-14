@@ -438,7 +438,7 @@ void Thread::search() {
               beta  = std::min(previousScore + delta, VALUE_INFINITE);
 
               // Adjust contempt based on root move's previousScore (dynamic contempt)
-              int dct = ct + (102 - ct / 2) * previousScore / (abs(previousScore) + 157);
+              int dct = ct + (ct ? (102 - ct / 2) * previousScore / (abs(previousScore) + 157) : 0);
 
               contempt = (us == WHITE ?  make_score(dct, dct / 2)
                                       : -make_score(dct, dct / 2));
@@ -848,7 +848,8 @@ namespace {
         &&  eval >= ss->staticEval
         &&  ss->staticEval >= beta - 32 * depth - 30 * improving + 120 * ttPv + 292
         && !excludedMove
-        &&  pos.non_pawn_material(us)
+        &&  thisThread->selDepth + 5 > thisThread->rootDepth
+        &&  pos.non_pawn_material(us) > BishopValueMg
         && (ss->ply >= thisThread->nmpMinPly || us != thisThread->nmpColor))
     {
         assert(eval - beta >= 0);
