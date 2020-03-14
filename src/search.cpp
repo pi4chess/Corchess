@@ -432,11 +432,11 @@ void Thread::search() {
           // Reset aspiration window starting size
           if (rootDepth >= 4)
           {
-              Value prevScore = rootMoves[pvIdx].previousScore;
-              delta1 = (prevScore < 0) ? Value(int(12.0 + 0.07 * abs(prevScore))) : Value(16);
-              delta2 = (prevScore > 0) ? Value(int(12.0 + 0.07 * abs(prevScore))) : Value(16);
-              alpha = std::max(prevScore - delta1,-VALUE_INFINITE);
-              beta  = std::min(prevScore + delta2, VALUE_INFINITE);
+              Value previousScore = rootMoves[pvIdx].previousScore;
+              delta1 = (previousScore < 0) ? Value(int(12.0 + 0.07 * abs(previousScore))) : Value(16);
+              delta2 = (previousScore > 0) ? Value(int(12.0 + 0.07 * abs(previousScore))) : Value(16);
+              alpha = std::max(previousScore - delta1,-VALUE_INFINITE);
+              beta  = std::min(previousScore + delta2, VALUE_INFINITE);
 
               // Adjust contempt based on root move's previousScore (dynamic contempt)
               int dct = ct + (ct ? (102 - ct / 2) * previousScore / (abs(previousScore) + 157) : 0);
