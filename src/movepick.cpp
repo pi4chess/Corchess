@@ -2,7 +2,7 @@
   Stockfish, a UCI chess playing engine derived from Glaurung 2.1
   Copyright (C) 2004-2008 Tord Romstad (Glaurung author)
   Copyright (C) 2008-2015 Marco Costalba, Joona Kiiski, Tord Romstad
-  Copyright (C) 2015-2019 Marco Costalba, Joona Kiiski, Gary Linscott, Tord Romstad
+  Copyright (C) 2015-2020 Marco Costalba, Joona Kiiski, Gary Linscott, Tord Romstad
 
   Stockfish is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -56,12 +56,12 @@ namespace {
 /// ordering is at the current node.
 
 /// MovePicker constructor for the main search
-MovePicker::MovePicker(const Position& p, Move ttm, Depth d, const ButterflyHistory* mh,
-                       const CapturePieceToHistory* cph, const PieceToHistory** ch, Move cm, Move* killers)
-           : pos(p), mainHistory(mh), captureHistory(cph), continuationHistory(ch),
-             refutations{{killers[0], 0}, {killers[1], 0}, {cm, 0}}, depth(d) {
+MovePicker::MovePicker(const Position& p, Move ttm, Depth d, const ButterflyHistory* mh, const LowPlyHistory* lp,
+                       const CapturePieceToHistory* cph, const PieceToHistory** ch, Move cm, Move* killers, int pl)
+           : pos(p), mainHistory(mh), lowPlyHistory(lp), captureHistory(cph), continuationHistory(ch),
+             refutations{{killers[0], 0}, {killers[1], 0}, {cm, 0}}, depth(d) , ply(pl) {
 
-  assert(d > DEPTH_ZERO);
+  assert(d > 0);
 
   stage = pos.checkers() ? EVASION_TT : MAIN_TT;
   ttMove = ttm && pos.pseudo_legal(ttm) ? ttm : MOVE_NONE;
@@ -73,7 +73,7 @@ MovePicker::MovePicker(const Position& p, Move ttm, Depth d, const ButterflyHist
                        const CapturePieceToHistory* cph, const PieceToHistory** ch, Square rs)
            : pos(p), mainHistory(mh), captureHistory(cph), continuationHistory(ch), recaptureSquare(rs), depth(d) {
 
-  assert(d <= DEPTH_ZERO);
+  assert(d <= 0);
 
   stage = pos.checkers() ? EVASION_TT : QSEARCH_TT;
   ttMove =   ttm
@@ -107,14 +107,16 @@ void MovePicker::score() {
 
   for (auto& m : *this)
       if (Type == CAPTURES)
-          m.value =  PieceValue[MG][pos.piece_on(to_sq(m))]
-                   + (*captureHistory)[pos.moved_piece(m)][to_sq(m)][type_of(pos.piece_on(to_sq(m)))] / 8;
+          m.value =  int(PieceValue[MG][pos.piece_on(to_sq(m))]) * 6
+                   + (*captureHistory)[pos.moved_piece(m)][to_sq(m)][type_of(pos.piece_on(to_sq(m)))];
 
       else if (Type == QUIETS)
-          m.value =  (*mainHistory)[pos.side_to_move()][from_to(m)]
-                   + (*continuationHistory[0])[pos.moved_piece(m)][to_sq(m)]
-                   + (*continuationHistory[1])[pos.moved_piece(m)][to_sq(m)]
-                   + (*continuationHistory[3])[pos.moved_piece(m)][to_sq(m)];
+          m.value =      (*mainHistory)[pos.side_to_move()][from_to(m)]
+                   + 2 * (*continuationHistory[0])[pos.moved_piece(m)][to_sq(m)]
+                   + 2 * (*continuationHistory[1])[pos.moved_piece(m)][to_sq(m)]
+                   + 2 * (*continuationHistory[3])[pos.moved_piece(m)][to_sq(m)]
+                   +     (*continuationHistory[5])[pos.moved_piece(m)][to_sq(m)]
+                   + (ply < MAX_LPH ?  4 * (*lowPlyHistory)[ply][from_to(m)] : 0);
 
       else // Type == EVASIONS
       {
@@ -138,12 +140,12 @@ Move MovePicker::select(Pred filter) {
       if (T == Best)
           std::swap(*cur, *std::max_element(cur, endMoves));
 
-      move = *cur++;
+      if (*cur != ttMove && filter())
+          return *cur++;
 
-      if (move != ttMove && filter())
-          return move;
+      cur++;
   }
-  return move = MOVE_NONE;
+  return MOVE_NONE;
 }
 
 /// MovePicker::next_move() is the most important method of the MovePicker class. It
@@ -173,10 +175,10 @@ top:
 
   case GOOD_CAPTURE:
       if (select<Best>([&](){
-                       return pos.see_ge(move, Value(-55 * (cur-1)->value / 1024)) ?
+                       return pos.see_ge(*cur, Value(-55 * cur->value / 1024)) ?
                               // Move losing capture to endBadCaptures to be tried later
-                              true : (*endBadCaptures++ = move, false); }))
-          return move;
+                              true : (*endBadCaptures++ = *cur, false); }))
+          return *(cur - 1);
 
       // Prepare the pointers to loop over the refutations array
       cur = std::begin(refutations);
@@ -191,28 +193,32 @@ top:
       /* fallthrough */
 
   case REFUTATION:
-      if (select<Next>([&](){ return    move != MOVE_NONE
-                                    && !pos.capture(move)
-                                    &&  pos.pseudo_legal(move); }))
-          return move;
+      if (select<Next>([&](){ return    *cur != MOVE_NONE
+                                    && !pos.capture(*cur)
+                                    &&  pos.pseudo_legal(*cur); }))
+          return *(cur - 1);
       ++stage;
       /* fallthrough */
 
   case QUIET_INIT:
-      cur = endBadCaptures;
-      endMoves = generate<QUIETS>(pos, cur);
+      if (!skipQuiets)
+      {
+          cur = endBadCaptures;
+          endMoves = generate<QUIETS>(pos, cur);
 
-      score<QUIETS>();
-      partial_insertion_sort(cur, endMoves, -4000 * depth / ONE_PLY);
+          score<QUIETS>();
+          partial_insertion_sort(cur, endMoves, -3000 * depth);
+      }
+
       ++stage;
       /* fallthrough */
 
   case QUIET:
       if (   !skipQuiets
-          && select<Next>([&](){return   move != refutations[0]
-                                      && move != refutations[1]
-                                      && move != refutations[2];}))
-          return move;
+          && select<Next>([&](){return   *cur != refutations[0].move
+                                      && *cur != refutations[1].move
+                                      && *cur != refutations[2].move;}))
+          return *(cur - 1);
 
       // Prepare the pointers to loop over the bad captures
       cur = moves;
@@ -236,12 +242,12 @@ top:
       return select<Best>([](){ return true; });
 
   case PROBCUT:
-      return select<Best>([&](){ return pos.see_ge(move, threshold); });
+      return select<Best>([&](){ return pos.see_ge(*cur, threshold); });
 
   case QCAPTURE:
       if (select<Best>([&](){ return   depth > DEPTH_QS_RECAPTURES
-                                    || to_sq(move) == recaptureSquare; }))
-          return move;
+                                    || to_sq(*cur) == recaptureSquare; }))
+          return *(cur - 1);
 
       // If we did not find any move and we do not try checks, we have finished
       if (depth != DEPTH_QS_CHECKS)
