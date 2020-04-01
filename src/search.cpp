@@ -294,7 +294,7 @@ void MainThread::search() {
 
           if (bestThread->rootMoves[0].score >= VALUE_TB_WIN_IN_MAX_PLY)
           {
-              // Make sure we pick the shortest mate
+              // Make sure we pick the shortest mate / TB conversion
               if (th->rootMoves[0].score > bestThread->rootMoves[0].score)
                   bestThread = th;
           }
@@ -435,7 +435,7 @@ void Thread::search() {
           if (rootDepth >= 4)
           {
               Value previousScore = rootMoves[pvIdx].previousScore;
-              delta = Value(21 + abs(previousScore) / 256);
+              delta = Value(21);
               alpha = std::max(previousScore - delta,-VALUE_INFINITE);
               beta  = std::min(previousScore + delta, VALUE_INFINITE);
 
@@ -875,7 +875,7 @@ namespace {
 
         if (nullValue >= beta)
         {
-            // Do not return unproven mate scores
+            // Do not return unproven mate or TB scores
             if (nullValue >= VALUE_TB_WIN_IN_MAX_PLY)
                 nullValue = beta;
 
@@ -972,6 +972,7 @@ moves_loop: // When in check, search starts from here
     value = bestValue;
     singularLMR = moveCountPruning = false;
     ttCapture = ttMove && pos.capture_or_promotion(ttMove);
+    bool formerPv = ttPv && !PvNode;
 
     // Mark this node as being searched
     ThreadHolding th(thisThread, posKey, ss->ply);
@@ -1065,8 +1066,8 @@ moves_loop: // When in check, search starts from here
           &&  tte->depth() >= depth - 3
           &&  pos.legal(move))
       {
-          Value singularBeta = ttValue - (((ttPv && !PvNode) + 4) * depth) / 2;
-          Depth singularDepth = (depth - 1 + 3 * (ttPv && !PvNode)) / 2;
+          Value singularBeta = ttValue - ((formerPv + 4) * depth) / 2;
+          Depth singularDepth = (depth - 1 + 3 * formerPv) / 2;
           ss->excludedMove = move;
           value = search<NonPV>(pos, ss, singularBeta - 1, singularBeta, singularDepth, cutNode);
           ss->excludedMove = MOVE_NONE;
@@ -1152,13 +1153,16 @@ moves_loop: // When in check, search starts from here
           if (ttPv)
               r -= 2;
 
+          if (moveCountPruning && !formerPv)
+              r++;
+
           // Decrease reduction if opponent's move count is high (~5 Elo)
           if ((ss-1)->moveCount > 14)
               r--;
 
           // Decrease reduction if ttMove has been singularly extended (~3 Elo)
           if (singularLMR)
-              r -= 1 + (ttPv && !PvNode);
+              r -= 1 + formerPv;
 
           if (!captureOrPromotion)
           {
