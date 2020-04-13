@@ -43,12 +43,13 @@ struct TTEntry {
   Depth depth() const { return (Depth)depth8 + DEPTH_OFFSET; }
   bool is_pv()  const { return (bool)(genBound8 & 0x4); }
   Bound bound() const { return (Bound)(genBound8 & 0x3); }
-  void save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev);
 
-private:
+  void save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev); 
+  
+  private:
   friend class TranspositionTable;
 
-  uint16_t key16;
+  uint64_t key;
   uint16_t move16;
   int16_t  value16;
   int16_t  eval16;
@@ -65,11 +66,10 @@ private:
 
 class TranspositionTable {
 
-  static constexpr int ClusterSize = 3;
+  static constexpr int ClusterSize = 2;
 
   struct Cluster {
     TTEntry entry[ClusterSize];
-    char padding[2]; // Pad to 32 bytes
   };
 
   static_assert(sizeof(Cluster) == 32, "Unexpected Cluster size");
