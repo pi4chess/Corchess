@@ -308,7 +308,7 @@ void MainThread::search() {
       }
   }
 
-  previousScore = bestThread->rootMoves[0].score;
+  bestPreviousScore = bestThread->rootMoves[0].score;
 
   // Send again PV info if we have a new best thread
   if (bestThread != this)
@@ -354,12 +354,12 @@ void Thread::search() {
 
   if (mainThread)
   {
-      if (mainThread->previousScore == VALUE_INFINITE)
+      if (mainThread->bestPreviousScore == VALUE_INFINITE)
           for (int i=0; i<4; ++i)
               mainThread->iterValue[i] = VALUE_ZERO;
       else
           for (int i=0; i<4; ++i)
-              mainThread->iterValue[i] = mainThread->previousScore;
+              mainThread->iterValue[i] = mainThread->bestPreviousScore;
   }
 
   size_t multiPV = Options["MultiPV"];
@@ -438,14 +438,14 @@ void Thread::search() {
           // Reset aspiration window starting size
           if (rootDepth >= 4)
           {
-              Value previousScore = rootMoves[pvIdx].previousScore;
-              delta1 = (previousScore < 0) ? Value(int(12.2 + 0.07 * abs(previousScore))) : Value(16);
-              delta2 = (previousScore > 0) ? Value(int(12.2 + 0.07 * abs(previousScore))) : Value(16);
-              alpha = std::max(previousScore - delta1,-VALUE_INFINITE);
-              beta  = std::min(previousScore + delta2, VALUE_INFINITE);
+              Value prev = rootMoves[pvIdx].previousScore;
+              delta1 = (prev < 0) ? Value(int(12.2 + 0.07 * abs(prev))) : Value(16);
+              delta2 = (prev > 0) ? Value(int(12.2 + 0.07 * abs(prev))) : Value(16);
+              alpha = std::max(prev - delta1,-VALUE_INFINITE);
+              beta  = std::min(prev + delta2, VALUE_INFINITE);
 
               // Adjust contempt based on root move's previousScore (dynamic contempt)
-              int dct = ct + (ct ? (102 - ct / 2) * previousScore / (abs(previousScore) + 157) : 0);
+              int dct = ct + (ct ? (102 - ct / 2) * prev / (abs(prev) + 157) : 0);
 
               contempt = (us == WHITE ?  make_score(dct, dct / 2)
                                       : -make_score(dct, dct / 2));
@@ -544,7 +544,7 @@ void Thread::search() {
           && !Threads.stop
           && !mainThread->stopOnPonderhit)
       {
-          double fallingEval = (332 +  6 * (mainThread->previousScore - bestValue)
+          double fallingEval = (332 +  6 * (mainThread->bestPreviousScore - bestValue)
                                     +  6 * (mainThread->iterValue[iterIdx]  - bestValue)) / 704.0;
           fallingEval = Utility::clamp(fallingEval, 0.5, 1.5);
 
@@ -633,7 +633,7 @@ namespace {
     Move ttMove, move, excludedMove, bestMove;
     Depth extension, newDepth;
     Value bestValue, value, ttValue, eval, maxValue;
-    bool ttHit, ttPv, inCheck, givesCheck, improving, didLMR, priorCapture;
+    bool ttHit, ttPv, formerPv, inCheck, givesCheck, improving, didLMR, priorCapture;
     bool captureOrPromotion, doFullDepthSearch, moveCountPruning, ttCapture, singularLMR;
     Piece movedPiece;
     int moveCount, captureCount, quietCount;
@@ -703,6 +703,7 @@ namespace {
     ttMove =  rootNode ? thisThread->rootMoves[thisThread->pvIdx].pv[0]
             : ttHit    ? tte->move() : MOVE_NONE;
     ttPv = PvNode || (ttHit && tte->is_pv());
+    formerPv = ttPv && !PvNode;
 
     if (ttPv && depth > 12 && ss->ply - 1 < MAX_LPH && !pos.captured_piece() && is_ok((ss-1)->currentMove))
         thisThread->lowPlyHistory[ss->ply - 1][from_to((ss-1)->currentMove)] << stat_bonus(depth - 5);
@@ -908,7 +909,8 @@ namespace {
         &&  depth >= 5
         &&  abs(beta) < VALUE_TB_WIN_IN_MAX_PLY)
     {
-        Value raisedBeta = std::min(beta + 189 - 45 * improving, VALUE_INFINITE);
+        Value raisedBeta = beta + 189 - 45 * improving;
+        assert(raisedBeta < VALUE_INFINITE);
         MovePicker mp(pos, ttMove, raisedBeta - ss->staticEval, &captureHistory);
         int probCutCount = 0;
 
@@ -973,7 +975,6 @@ moves_loop: // When in check, search starts from here
     value = bestValue;
     singularLMR = moveCountPruning = false;
     ttCapture = ttMove && pos.capture_or_promotion(ttMove);
-    bool formerPv = ttPv && !PvNode;
 
     // Mark this node as being searched
     ThreadHolding th(thisThread, posKey, ss->ply);
@@ -1047,11 +1048,13 @@ moves_loop: // When in check, search starts from here
           }
           else
           {
+              // Capture history based pruning when the move doesn't give check
               if (   !givesCheck
                   && lmrDepth < 1
                   && captureHistory[movedPiece][to_sq(move)][type_of(pos.piece_on(to_sq(move)))] < 0)
                   continue;
 
+              // See based pruning
               if (!pos.see_ge(move, Value(-194) * depth)) // (~25 Elo)
                   continue;
           }
@@ -1114,6 +1117,12 @@ moves_loop: // When in check, search starts from here
       // Castling extension
       if (type_of(move) == CASTLING)
           extension = 1;
+
+      // Late irreversible move extension
+      if (   move == ttMove
+          && pos.rule50_count() > 80
+          && (captureOrPromotion || type_of(movedPiece) == PAWN))
+          extension = 2;
 
       // Add extension to new depth
       newDepth += extension;
@@ -1397,7 +1406,7 @@ moves_loop: // When in check, search starts from here
     Move ttMove, move, bestMove;
     Depth ttDepth;
     Value bestValue, value, ttValue, futilityValue, futilityBase, oldAlpha;
-    bool ttHit, pvHit, inCheck, givesCheck, captureOrPromotion, evasionPrunable;
+    bool ttHit, pvHit, inCheck, givesCheck, captureOrPromotion;
     int moveCount;
 
     if (PvNode)
@@ -1526,14 +1535,8 @@ moves_loop: // When in check, search starts from here
           }
       }
 
-      // Detect non-capture evasions that are candidates to be pruned
-      evasionPrunable =    inCheck
-                       &&  (depth != 0 || moveCount > 2)
-                       &&  bestValue > VALUE_TB_LOSS_IN_MAX_PLY
-                       && !pos.capture(move);
-
       // Don't search moves with negative SEE values
-      if (  (!inCheck || evasionPrunable) && !pos.see_ge(move))
+      if (  !inCheck && !pos.see_ge(move))
           continue;
 
       // Speculative prefetch as early as possible
