@@ -134,7 +134,7 @@ Move MovePicker::select(Pred filter) {
       if (T == Best)
           std::swap(*cur, *std::max_element(cur, endMoves));
 
-      if (*cur != ttMove && filter())
+      if (*cur != ttMove && filter() && pos.legal(*cur))
           return *cur++;
 
       cur++;
@@ -236,7 +236,7 @@ top:
       return select<Best>([](){ return true; });
 
   case PROBCUT:
-      return select<Best>([&](){ return pos.see_ge(*cur, threshold); });
+      return select<Best>([&](){ return pos.see_ge(*cur, std::max(PawnValueMg, threshold)); });
 
   case QCAPTURE:
       if (select<Best>([&](){ return   depth > DEPTH_QS_RECAPTURES

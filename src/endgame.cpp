@@ -107,18 +107,57 @@ Value Endgame<KXK>::operator()(const Position& pos) const {
 
   Square strongKing = pos.square<KING>(strongSide);
   Square weakKing   = pos.square<KING>(weakSide);
+  Value result = Value(push_to_edge(weakKing) + push_close(strongKing, weakKing));
 
-  Value result =  pos.non_pawn_material(strongSide)
-                + pos.count<PAWN>(strongSide) * PawnValueEg
-                + push_to_edge(weakKing)
-                + push_close(strongKing, weakKing);
-
-  if (   pos.count<QUEEN>(strongSide)
+   // All minimum winning zero pawn material configurations
+   if (  pos.count<QUEEN>(strongSide)
       || pos.count<ROOK>(strongSide)
+      || pos.count<KNIGHT>(strongSide) > 2
       ||(pos.count<BISHOP>(strongSide) && pos.count<KNIGHT>(strongSide))
       || (   (pos.pieces(strongSide, BISHOP) & ~DarkSquares)
           && (pos.pieces(strongSide, BISHOP) &  DarkSquares)))
-      result = std::min(result + VALUE_KNOWN_WIN, VALUE_TB_WIN_IN_MAX_PLY - 1);
+   {
+      result = std::min(result + pos.non_pawn_material(strongSide) + VALUE_KNOWN_WIN, VALUE_TB_WIN - 7 * PawnValueEg);
+      return pos.side_to_move() == strongSide ? result : -result;
+   }
+
+  Bitboard Pawns = pos.pieces(strongSide, PAWN);
+
+  // Either 2 or fewer knights or same colored bishops without pawns
+  if (!Pawns)
+      return VALUE_DRAW;
+
+  // At least 1 pawn not on A or H files + bishop or 1+ pawns + knight(s)
+  if ((Pawns & ~FileABB & ~FileHBB) || pos.count<KNIGHT>(strongSide))
+  {
+      result += pos.count<PAWN>(strongSide) * PawnValueEg + pos.non_pawn_material(strongSide);
+      result = std::min(result + VALUE_KNOWN_WIN, VALUE_TB_WIN - 7 * PawnValueEg);
+      return pos.side_to_move() == strongSide ? result : -result;
+  }
+
+  // Only same colored bishops left
+  // All pawns are on File A or H
+  if (!(Pawns & ~FileABB) || !(Pawns & ~FileHBB))
+  {
+    Bitboard strongBishops = pos.pieces(strongSide, BISHOP);
+    Square bishopSq = lsb(strongBishops);
+    Square queeningSq = relative_square(strongSide, make_square(file_of(lsb(Pawns)), RANK_8));
+    Square weakKingSq = pos.square<KING>(weakSide);
+
+    if (!opposite_colors(queeningSq, bishopSq))
+    {
+      result = std::min(result + PawnValueEg + pos.non_pawn_material(strongSide) + VALUE_KNOWN_WIN, VALUE_TB_WIN - 7 * PawnValueEg);
+      return pos.side_to_move() == strongSide ? result : -result;
+    }
+    // Wrong colored bishop(s)
+    if (distance(queeningSq, weakKingSq) <= 1)
+        return VALUE_DRAW;
+  }
+  else
+  {
+      result = std::min(result + PawnValueEg + pos.non_pawn_material(strongSide) + VALUE_KNOWN_WIN, VALUE_TB_WIN - 7 * PawnValueEg);
+      return pos.side_to_move() == strongSide ? result : -result;
+  }
 
   return strongSide == pos.side_to_move() ? result : -result;
 }
@@ -268,7 +307,7 @@ Value Endgame<KQKP>::operator()(const Position& pos) const {
 }
 
 
-/// KQ vs KR.  This is almost identical to KX vs K:  We give the attacking
+/// KQ vs KR. This is almost identical to KX vs K: we give the attacking
 /// king a bonus for having the kings close together, and for forcing the
 /// defending king towards the edge. If we also take care to avoid null move for
 /// the defending side in the search, this is usually sufficient to win KQ vs KR.
@@ -291,7 +330,7 @@ Value Endgame<KQKR>::operator()(const Position& pos) const {
 
 
 /// KNN vs KP. Very drawish, but there are some mate opportunities if we can
-//  press the weakSide King to a corner before the pawn advances too much.
+/// press the weakSide King to a corner before the pawn advances too much.
 template<>
 Value Endgame<KNNKP>::operator()(const Position& pos) const {
 
@@ -320,7 +359,6 @@ template<> Value Endgame<KNNK>::operator()(const Position&) const { return VALUE
 template<>
 ScaleFactor Endgame<KBPsK>::operator()(const Position& pos) const {
 
-  assert(pos.non_pawn_material(strongSide) == BishopValueMg);
   assert(pos.count<PAWN>(strongSide) >= 1);
 
   // No assertions about the material of weakSide, because we want draws to
@@ -328,8 +366,9 @@ ScaleFactor Endgame<KBPsK>::operator()(const Position& pos) const {
 
   Bitboard strongPawns = pos.pieces(strongSide, PAWN);
   Bitboard allPawns = pos.pieces(PAWN);
+  Bitboard strongBishops = pos.pieces(strongSide, BISHOP);
 
-  Square strongBishop = pos.square<BISHOP>(strongSide);
+  Square strongBishop = lsb(strongBishops);
   Square weakKing = pos.square<KING>(weakSide);
   Square strongKing = pos.square<KING>(strongSide);
 
@@ -352,7 +391,7 @@ ScaleFactor Endgame<KBPsK>::operator()(const Position& pos) const {
       Square weakPawn = frontmost_sq(strongSide, pos.pieces(weakSide, PAWN));
 
       // There's potential for a draw if our pawn is blocked on the 7th rank,
-      // the bishop cannot attack it or they only have one pawn left
+      // the bishop cannot attack it or they only have one pawn left.
       if (   relative_rank(strongSide, weakPawn) == RANK_7
           && (strongPawns & (weakPawn + pawn_push(weakSide)))
           && (opposite_colors(strongBishop, weakPawn) || !more_than_one(strongPawns)))
@@ -365,7 +404,7 @@ ScaleFactor Endgame<KBPsK>::operator()(const Position& pos) const {
           // closer. (I think this rule only fails in practically
           // unreachable positions such as 5k1K/6p1/6P1/8/8/3B4/8/8 w
           // and positions where qsearch will immediately correct the
-          // problem such as 8/4k1p1/6P1/1K6/3B4/8/8/8 w)
+          // problem such as 8/4k1p1/6P1/1K6/3B4/8/8/8 w).
           if (   relative_rank(strongSide, weakKing) >= RANK_7
               && weakKingDist <= 2
               && weakKingDist <= strongKingDist)
@@ -386,17 +425,17 @@ ScaleFactor Endgame<KQKRPs>::operator()(const Position& pos) const {
   assert(pos.count<ROOK>(weakSide) == 1);
   assert(pos.count<PAWN>(weakSide) >= 1);
 
-  Square strongKing = pos.square<KING>(strongSide);
-  Square weakKing   = pos.square<KING>(weakSide);
-  Square weakRook   = pos.square<ROOK>(weakSide);
+  Square weakKing = pos.square<KING>(weakSide);
+  Bitboard defended_pawns, safe_rank, knight_file;
 
-  if (    relative_rank(weakSide,   weakKing) <= RANK_2
-      &&  relative_rank(weakSide, strongKing) >= RANK_4
-      &&  relative_rank(weakSide,   weakRook) == RANK_3
-      && (  pos.pieces(weakSide, PAWN)
-          & attacks_bb<KING>(weakKing)
-          & pawn_attacks_bb(strongSide, weakRook)))
-          return SCALE_FACTOR_DRAW;
+  safe_rank = weakSide == WHITE ? Rank2BB : Rank7BB;
+
+  knight_file = FileBBB | FileGBB;
+
+  defended_pawns = pos.pieces(weakSide, PAWN) & attacks_bb<KING>(weakKing) & (safe_rank | knight_file) & ~(FileABB | FileHBB);
+
+  if (defended_pawns)
+      return SCALE_FACTOR_DRAW;
 
   return SCALE_FACTOR_NONE;
 }
@@ -576,7 +615,7 @@ ScaleFactor Endgame<KRPPKRP>::operator()(const Position& pos) const {
 }
 
 
-/// K and two or more pawns vs K. There is just a single rule here: If all pawns
+/// K and two or more pawns vs K. There is just a single rule here: if all pawns
 /// are on the same rook file and are blocked by the defending king, it's a draw.
 template<>
 ScaleFactor Endgame<KPsK>::operator()(const Position& pos) const {
@@ -693,7 +732,7 @@ ScaleFactor Endgame<KBPPKB>::operator()(const Position& pos) const {
 }
 
 
-/// KBP vs KN. There is a single rule: If the defending king is somewhere along
+/// KBP vs KN. There is a single rule: if the defending king is somewhere along
 /// the path of the pawn, and the square of the king is not of the same color as
 /// the stronger side's bishop, it's a draw.
 template<>
@@ -717,7 +756,7 @@ ScaleFactor Endgame<KBPKN>::operator()(const Position& pos) const {
 
 
 /// KP vs KP. This is done by removing the weakest side's pawn and probing the
-/// KP vs K bitbase: If the weakest side has a draw without the pawn, it probably
+/// KP vs K bitbase: if the weakest side has a draw without the pawn, it probably
 /// has at least a draw with the pawn as well. The exception is when the stronger
 /// side's pawn is far advanced and not on a rook file; in this case it is often
 /// possible to win (e.g. 8/4k3/3p4/3P4/6K1/8/8/8 w - - 0 1).

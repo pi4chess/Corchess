@@ -30,23 +30,21 @@
 
 TranspositionTable TT; // Our global transposition table
 
-/// TTEntry::save populates the TTEntry with a new node's data, possibly
+/// TTEntry::save() populates the TTEntry with a new node's data, possibly
 /// overwriting an old position. Update is not atomic and can be racy.
 
 void TTEntry::save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev) {
 
   // Preserve any existing move for the same position
-  if (m || (uint16_t)k != key16)
+  if (m || k != key)
       move16 = (uint16_t)m;
 
   // Overwrite less valuable entries
-  if ((uint16_t)k != key16
-      || d - DEPTH_OFFSET > depth8 - 4
+  if (   k != key
+      || d - DEPTH_NONE > depth8 - 4
       || b == BOUND_EXACT)
   {
-      assert(d >= DEPTH_OFFSET);
-
-      key16     = (uint16_t)k;
+      key       =  k;
       value16   = (int16_t)v;
       eval16    = (int16_t)ev;
       genBound8 = (uint8_t)(TT.generation8 | uint8_t(pv) << 2 | b);
@@ -107,6 +105,7 @@ void TranspositionTable::clear() {
       th.join();
 }
 
+
 /// TranspositionTable::probe() looks up the current position in the transposition
 /// table. It returns true and a pointer to the TTEntry if the position is found.
 /// Otherwise, it returns false and a pointer to an empty or least valuable TTEntry
@@ -117,14 +116,12 @@ void TranspositionTable::clear() {
 TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
 
   TTEntry* const tte = first_entry(key);
-  const uint16_t key16 = (uint16_t)key;  // Use the low 16 bits as key inside the cluster
-
   for (int i = 0; i < ClusterSize; ++i)
-      if (!tte[i].key16 || tte[i].key16 == key16)
+      if (!tte[i].key || tte[i].key == key)
       {
           tte[i].genBound8 = uint8_t(generation8 | (tte[i].genBound8 & 0x7)); // Refresh
 
-          return found = (bool)tte[i].key16, &tte[i];
+          return found = (bool)tte[i].key, &tte[i];
       }
 
   // Find an entry to be replaced according to the replacement strategy

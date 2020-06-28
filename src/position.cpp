@@ -105,8 +105,7 @@ Key cuckoo[8192];
 Move cuckooMove[8192];
 
 
-/// Position::init() initializes at startup the various arrays used to compute
-/// hash keys.
+/// Position::init() initializes at startup the various arrays used to compute hash keys
 
 void Position::init() {
 
@@ -624,7 +623,6 @@ bool Position::pseudo_legal(const Move m) const {
   return true;
 }
 
-
 /// Position::gives_check() tests whether a pseudo-legal move gives a check
 
 bool Position::gives_check(Move m) const {
@@ -1112,12 +1110,13 @@ bool Position::see_ge(Move m, Value threshold) const {
   return bool(res);
 }
 
+
 /// Position::is_draw() tests whether the position is drawn by 50-move rule
 /// or by repetition. It does not detect stalemates.
 
 bool Position::is_draw(int ply) const {
 
-  if (st->rule50 > 99 && (!checkers() || MoveList<LEGAL>(*this).size()))
+  if (st->rule50 > 99 + bool(checkers()))
       return true;
 
   // Return a draw score if a position repeats once earlier but strictly
@@ -1143,6 +1142,60 @@ bool Position::has_repeated() const {
     return false;
 }
 
+bool Position::is_scb(Color Us) const {
+
+    if (pieces(Us, QUEEN))
+        return false;
+
+    if (pieces(Us, ROOK))
+        return false;
+
+    if (pieces(Us, KNIGHT))
+        return false;
+
+    if (      pieces(Us, BISHOP)
+        && !((pieces(Us, BISHOP) & ~DarkSquares) && (pieces(Us, BISHOP) &  DarkSquares)))
+            return true;
+
+    return false;
+}
+
+
+bool Position::king_danger() const {
+
+    Square ksq = square<KING>(sideToMove);
+    Bitboard kingRing, kingAttackers, legalKing;
+
+    kingRing = kingAttackers = legalKing = 0;
+
+    kingRing = attacks_bb<KING>(ksq);
+
+    while (kingRing)
+    {
+      Square to = pop_lsb(&kingRing);
+      Bitboard enemyAttackers = pieces(~sideToMove) & attackers_to(to);
+      if (!enemyAttackers)
+      {
+          if ((pieces(sideToMove) & to) == 0)
+              legalKing |= to;
+      }
+
+      while (enemyAttackers)
+      {
+        Square currentEnemy = pop_lsb(&enemyAttackers);
+        if ((currentEnemy & ~kingRing) || (more_than_one(attackers_to(to) & pieces(~sideToMove))))
+            kingAttackers |= currentEnemy;
+      }
+    }
+    int kingAttackersCount = popcount(kingAttackers);
+    int legalKingCount = popcount(legalKing);
+
+    if (   (kingAttackersCount > 1 &&  legalKingCount < 2)
+        || (kingAttackersCount > 0 && !legalKingCount))
+        return true;
+
+    return false;
+}
 
 /// Position::has_game_cycle() tests if the position has a move which draws by repetition,
 /// or an earlier position has a move that directly reaches the current position.

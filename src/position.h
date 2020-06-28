@@ -56,6 +56,7 @@ struct StateInfo {
   int        repetition;
 };
 
+
 /// A list to keep track of the position states along the setup moves (from the
 /// start position to the position just before the search starts). Needed by
 /// 'draw by repetition' detection. Use a std::deque because pointers to
@@ -153,6 +154,8 @@ public:
   bool is_draw(int ply) const;
   bool has_game_cycle(int ply) const;
   bool has_repeated() const;
+  bool king_danger() const;
+  bool is_scb(Color c) const;
   int rule50_count() const;
   Score psq_score() const;
   Value non_pawn_material(Color c) const;

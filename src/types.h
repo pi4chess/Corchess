@@ -101,7 +101,7 @@ typedef uint64_t Key;
 typedef uint64_t Bitboard;
 
 constexpr int MAX_MOVES = 256;
-constexpr int MAX_PLY   = 246;
+constexpr int MAX_PLY   = 245;
 
 /// A move needs 16 bits to be stored
 ///
@@ -187,7 +187,9 @@ enum Value : int {
   QueenValueMg  = 2538,  QueenValueEg  = 2682,
   Tempo = 28,
 
-  MidgameLimit  = 15258, EndgameLimit  = 3915
+  MidgameLimit  = 15258, EndgameLimit  = 3915,
+
+  VALUE_TB_WIN    = 101 * PawnValueEg
 };
 
 enum PieceType {
@@ -349,16 +351,16 @@ constexpr Color operator~(Color c) {
   return Color(c ^ BLACK); // Toggle color
 }
 
-constexpr Square flip_rank(Square s) {
+constexpr Square flip_rank(Square s) { // Swap A1 <-> A8
   return Square(s ^ SQ_A8);
 }
 
-constexpr Square flip_file(Square s) {
+constexpr Square flip_file(Square s) { // Swap A1 <-> H1
   return Square(s ^ SQ_H1);
 }
 
 constexpr Piece operator~(Piece pc) {
-  return Piece(pc ^ 8); // Swap color of piece B_KNIGHT -> W_KNIGHT
+  return Piece(pc ^ 8); // Swap color of piece B_KNIGHT <-> W_KNIGHT
 }
 
 constexpr CastlingRights operator&(Color c, CastlingRights cr) {
