@@ -38,7 +38,7 @@ matrix:
 
 branches:
   only:
-   - master
+   - crystal
 
 before_script:
   - cd src
@@ -54,7 +54,6 @@ script:
   - make clean && make -j2 ARCH=x86-64 optimize=no debug=yes build && ../tests/signature.sh $benchref
   - make clean && make -j2 ARCH=x86-32 optimize=no debug=yes build && ../tests/signature.sh $benchref
   - make clean && make -j2 ARCH=x86-32 build && ../tests/signature.sh $benchref
-
   #
   # Check perft and reproducible search
   - ../tests/perft.sh
@@ -64,10 +63,10 @@ script:
   #
   - export CXXFLAGS="-O1 -fno-inline"
   - if [ -x "$(command -v valgrind )" ]; then make clean && make -j2 ARCH=x86-64 debug=yes optimize=no build > /dev/null && ../tests/instrumented.sh --valgrind; fi
-  - if [ -x "$(command -v valgrind )" ]; then ../tests/instrumented.sh --valgrind-thread; fi
+  #- if [ -x "$(command -v valgrind )" ]; then ../tests/instrumented.sh --valgrind-thread; fi
   #
   # Sanitizer
   #
   # Use g++-8 as a proxy for having sanitizers, might need revision as they become available for more recent versions of clang/gcc
   - if [[ "$COMPILER" == "g++-8" ]]; then make clean && make -j2 ARCH=x86-64 sanitize=undefined optimize=no debug=yes build > /dev/null && ../tests/instrumented.sh --sanitizer-undefined; fi
-  - if [[ "$COMPILER" == "g++-8" ]]; then make clean && make -j2 ARCH=x86-64 sanitize=thread    optimize=no debug=yes build > /dev/null && ../tests/instrumented.sh --sanitizer-thread; fi
+  #- if [[ "$COMPILER" == "g++-8" ]]; then make clean && make -j2 ARCH=x86-64 sanitize=thread    optimize=no debug=yes build > /dev/null && ../tests/instrumented.sh --sanitizer-thread; fi
