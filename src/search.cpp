@@ -537,7 +537,7 @@ namespace {
     Move ttMove, move, excludedMove, bestMove;
     Depth extension, newDepth, ttDepth;
     Bound ttBound;
-    Value bestValue, value, ttValue, eval;
+    Value bestValue, value, ttValue, eval, probcutBeta;
     bool ttHit, ttPv, formerPv, givesCheck, improving, didLMR, priorCapture, isMate, gameCycle;
     bool captureOrPromotion, doFullDepthSearch, moveCountPruning, ttCapture, singularQuietLMR, kingDanger;
     Piece movedPiece;
@@ -800,6 +800,8 @@ namespace {
 
            Value nullValue = -search<NonPV>(pos, ss+1, -beta, -beta+1, depth-R, !cutNode);
 
+    probcutBeta = beta + 176 - 49 * improving;
+
            pos.undo_null_move();
 
            if (nullValue >= beta)
@@ -828,17 +830,26 @@ namespace {
        // If we have a good enough capture and a reduced search returns a value
        // much above beta, we can (almost) safely prune the previous move.
        if (    depth > 4
-           &&  abs(beta) < VALUE_TB_WIN_IN_MAX_PLY)
+           &&  abs(beta) < VALUE_TB_WIN_IN_MAX_PLY
+           && !(   ttHit
+                && tte->depth() >= depth - 3
+                && ttValue != VALUE_NONE
+                && ttValue < probcutBeta))
        {
-           Value raisedBeta = std::min(beta + 176 - 49 * improving, VALUE_INFINITE);
-           MovePicker mp(pos, ttMove, raisedBeta - ss->staticEval, &captureHistory);
+           if (   ttHit
+               && tte->depth() >= depth - 3
+               && ttValue != VALUE_NONE
+               && ttValue >= probcutBeta
+               && ttMove
+               && pos.capture_or_promotion(ttMove))
+               return probcutBeta;
+
+           assert(probcutBeta < VALUE_INFINITE);
+           MovePicker mp(pos, ttMove, probcutBeta - ss->staticEval, &captureHistory);
            int probCutCount = 0;
 
            while (  (move = mp.next_move()) != MOVE_NONE
-                  && probCutCount < 2 + 2 * cutNode
-                  && !(   move == ttMove
-                       && ttDepth >= depth - 4
-                       && ttValue < raisedBeta))
+                  && probCutCount < 2 + 2 * cutNode)
                if (move != excludedMove)
                {
                    assert(pos.capture_or_promotion(move));
@@ -856,16 +867,21 @@ namespace {
                    pos.do_move(move, st);
 
                    // Perform a preliminary qsearch to verify that the move holds
-                   value = -qsearch<NonPV>(pos, ss+1, -raisedBeta, -raisedBeta+1);
+                   value = -qsearch<NonPV>(pos, ss+1, -probcutBeta, -probcutBeta+1);
 
                    // If the qsearch held perform the regular search
-                   if (value >= raisedBeta)
-                       value = -search<NonPV>(pos, ss+1, -raisedBeta, -raisedBeta+1, depth - 4, !cutNode);
+                   if (value >= probcutBeta)
+                       value = -search<NonPV>(pos, ss+1, -probcutBeta, -probcutBeta+1, depth - 4, !cutNode);
 
                    pos.undo_move(move);
 
-                   if (value >= raisedBeta)
+                   if (value >= probcutBeta)
+                   {
+                       tte->save(posKey, value_to_tt(value, ss->ply), ttPv,
+                           BOUND_LOWER,
+                           depth - 3, move, ss->staticEval);
                        return std::min(value, VALUE_TB_WIN_IN_MAX_PLY);
+                   }
                }
        }
     } //End early Pruning
