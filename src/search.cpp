@@ -877,9 +877,12 @@ namespace {
 
                    if (value >= probcutBeta)
                    {
-                       tte->save(posKey, value_to_tt(value, ss->ply), ttPv,
-                           BOUND_LOWER,
-                           depth - 3, move, ss->staticEval);
+                       if ( !(ttHit
+                       && tte->depth() >= depth - 3
+                       && ttValue != VALUE_NONE))
+                        tte->save(posKey, value_to_tt(value, ss->ply), ttPv,
+                            BOUND_LOWER,
+                            depth - 3, move, ss->staticEval);
                        return std::min(value, VALUE_TB_WIN_IN_MAX_PLY);
                    }
                }
