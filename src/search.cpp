@@ -1,8 +1,6 @@
 /*
   Stockfish, a UCI chess playing engine derived from Glaurung 2.1
-  Copyright (C) 2004-2008 Tord Romstad (Glaurung author)
-  Copyright (C) 2008-2015 Marco Costalba, Joona Kiiski, Tord Romstad
-  Copyright (C) 2015-2020 Marco Costalba, Joona Kiiski, Gary Linscott, Tord Romstad
+  Copyright (C) 2004-2020 The Stockfish developers (see AUTHORS file)
 
   Stockfish is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -231,6 +229,8 @@ void MainThread::search() {
   Color us = rootPos.side_to_move();
   Time.init(Limits, us, rootPos.game_ply());
   TT.new_search();
+
+  Eval::verify_NNUE();
 
   if (rootMoves.empty())
   {
@@ -823,7 +823,7 @@ namespace {
 
     // Step 8. Futility pruning: child node (~50 Elo)
     if (   !PvNode
-        &&  depth < 6
+        &&  depth < 8
         &&  eval - futility_margin(depth, improving) >= beta
         &&  eval < VALUE_KNOWN_WIN) // Do not return unproven wins
         return eval;
@@ -994,6 +994,10 @@ moves_loop: // When in check, search starts from here
                                   thisThread->rootMoves.begin() + thisThread->pvLast, move))
           continue;
 
+      // Check for legality
+      if (!rootNode && !pos.legal(move))
+          continue;
+
       ss->moveCount = ++moveCount;
 
       if (rootNode && thisThread == Threads.main() && Time.elapsed() > 3000)
@@ -1032,7 +1036,7 @@ moves_loop: // When in check, search starts from here
                   continue;
 
               // Futility pruning: parent node (~5 Elo)
-              if (   lmrDepth < 6
+              if (   lmrDepth < 8
                   && !ss->inCheck
                   && ss->staticEval + 284 + 188 * lmrDepth <= alpha
                   &&  (*contHist[0])[movedPiece][to_sq(move)]
@@ -1139,18 +1143,17 @@ moves_loop: // When in check, search starts from here
       if (type_of(move) == CASTLING)
           extension = 1;
 
+      // Late irreversible move extension
+      if (   move == ttMove
+          && pos.rule50_count() > 80
+          && (captureOrPromotion || type_of(movedPiece) == PAWN))
+          extension = 2;
+
       // Add extension to new depth
       newDepth += extension;
 
       // Speculative prefetch as early as possible
       prefetch(TT.first_entry(pos.key_after(move)));
-
-      // Check for legality just before making the move
-      if (!rootNode && !pos.legal(move))
-      {
-          ss->moveCount = --moveCount;
-          continue;
-      }
 
       // Update the current move (this must be done after singular extension search)
       ss->currentMove = move;
