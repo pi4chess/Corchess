@@ -408,8 +408,8 @@ void Thread::search() {
           if (rootDepth >= 4)
           {
               Value prev = rootMoves[pvIdx].previousScore;
-              delta1 = (prev < 0) ? Value(int(10.0 + 0.07 * abs(prev))) : Value(14);
-              delta2 = (prev > 0) ? Value(int(10.0 + 0.07 * abs(prev))) : Value(14);
+              delta1 = (prev < 0) ? Value(int(11.0 + 0.07 * abs(prev))) : Value(15);
+              delta2 = (prev > 0) ? Value(int(11.0 + 0.07 * abs(prev))) : Value(15);
               alpha = std::max(prev - delta1,-VALUE_INFINITE);
               beta  = std::min(prev + delta2, VALUE_INFINITE);
 
@@ -843,7 +843,7 @@ namespace {
         assert(eval - beta >= 0);
 
         // Null move dynamic reduction based on depth and value
-        Depth R = std::max(1, int(3.0 * log(depth)) + std::min(int(eval - beta) / 192, 3));
+        Depth R = std::max(1, int(3.2 * log(depth)) + std::min(int(eval - beta) / 192, 3));
 
         ss->currentMove = MOVE_NULL;
         ss->continuationHistory = &thisThread->continuationHistory[0][0][NO_PIECE][0];
