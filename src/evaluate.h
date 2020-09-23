@@ -36,9 +36,9 @@ namespace Eval {
   namespace NNUE {
 
     Value evaluate(const Position& pos);
-    Value compute_eval(const Position& pos);
-    void  update_eval(const Position& pos);
-    bool  load_eval_file(const std::string& evalFile);
+    bool load_eval_file(const std::string& evalFile);
+    void init();
+    void verify();
 
   } // namespace NNUE
 
