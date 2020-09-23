@@ -32,8 +32,6 @@ namespace Eval {
 
   extern bool useNNUE;
   extern std::string eval_file_loaded;
-  void init_NNUE();
-  void verify_NNUE();
 
   namespace NNUE {
 
