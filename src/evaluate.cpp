@@ -45,7 +45,7 @@ namespace Eval {
             eval_file_loaded = eval_file;
   }
 
-  void verify_NNUE() {
+  void NNUE::verify() {
 
     std::string eval_file = std::string(Options["EvalFile"]);
     if (useNNUE && eval_file_loaded != eval_file)
