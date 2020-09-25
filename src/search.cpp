@@ -192,7 +192,7 @@ namespace {
 
 void Search::init() {
 
-  double r = 22.0 + log(Threads.size());
+  double r = 22.0 + 2 * log(Threads.size());
   for (int i = 1; i < MAX_MOVES; ++i)
   {
       DReductions[i] = int(r * 0.4 * i * (1.0 - exp(-8.0 / i)));
